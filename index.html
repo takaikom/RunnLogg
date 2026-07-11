@@ -2,8 +2,12 @@
 <html lang="ja">
 <head>
 <!--
-  ランログ (RunLog) v1
+  ランログ (RunLog) v2
   変更内容:
+  - PWA対応(manifest.json + sw.js ネットワークファースト方式、ホーム画面追加・オフライン起動)
+  - 全入力欄から例示(placeholder)を削除
+  - すべてのテキスト入力欄に一括クリアボタン(✕)を設置(設定画面・タイム入力欄含む)
+  --- v1 ---
   - 初版リリース
   - GPS計測(距離・タイム・ペース・1kmスプリット・ルート地図)
   - 手動記録(バリデーション・全角自動変換)
@@ -18,6 +22,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0e1420">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>ランログ</title>
 <style>
 /* ============ カラーテーマ定義 ============ */
@@ -171,7 +177,7 @@ nav button.active{color:var(--accent)}
 .setting-row{display:flex;align-items:center;gap:10px;padding:10px 0}
 .setting-label{font-size:14px;font-weight:600;flex:1}
 .setting-row input[type="text"],.setting-row input[type="url"]{
-  flex:1.4;min-height:44px;border:1px solid var(--line);border-radius:10px;padding:0 10px;background:var(--bg);min-width:0;
+  width:100%;min-height:44px;border:1px solid var(--line);border-radius:10px;padding:0 34px 0 10px;background:var(--bg);min-width:0;
 }
 .settings-card{background:var(--bg2);border-radius:16px;box-shadow:var(--shadow);padding:14px 16px;margin-bottom:12px}
 .ver-label{font-size:12px;color:var(--text3);text-align:center;margin-top:6px}
@@ -212,7 +218,7 @@ nav button.active{color:var(--accent)}
 .quick-btns button{min-height:36px;padding:0 14px;border-radius:10px;background:var(--bg3);font-size:13px;font-weight:700}
 .time-inputs{display:flex;gap:8px;align-items:center}
 .time-inputs .input-wrap{flex:1}
-.time-inputs input{padding-right:12px;text-align:center}
+.time-inputs input{padding-right:30px;text-align:center}
 .time-inputs span{color:var(--text3);font-size:13px}
 .feel-select{display:flex;gap:8px;justify-content:space-between}
 .feel-select button{
@@ -320,14 +326,14 @@ nav button.active{color:var(--accent)}
 
     <div class="settings-card">
       <div class="setting-label" style="margin-bottom:6px">👤 プロフィール</div>
-      <div class="setting-row"><div class="setting-label">名前(記録者名)</div><input type="text" id="set-user" maxlength="10" placeholder="例: パパ" onchange="App.saveSettings()"></div>
-      <div class="setting-row"><div class="setting-label">体重(kg・カロリー計算用)</div><input type="text" inputmode="decimal" id="set-weight" maxlength="5" placeholder="60" onchange="App.saveSettings()"></div>
+      <div class="setting-row"><div class="setting-label">名前(記録者名)</div><div class="input-wrap" style="flex:1.4;min-width:0"><input type="text" id="set-user" maxlength="10" onchange="App.saveSettings()"><button class="clear-x">✕</button></div></div>
+      <div class="setting-row"><div class="setting-label">体重(kg・カロリー計算用)</div><div class="input-wrap" style="flex:1.4;min-width:0"><input type="text" inputmode="decimal" id="set-weight" maxlength="5" onchange="App.saveSettings()"><button class="clear-x">✕</button></div></div>
     </div>
 
     <div class="settings-card">
       <div class="setting-label" style="margin-bottom:6px">☁️ 家族・グループ共有(GAS同期)</div>
-      <div class="setting-row"><div class="setting-label">GAS URL</div><input type="url" id="set-gas" placeholder="https://script.google.com/..." onchange="App.saveSettings()"></div>
-      <div class="setting-row"><div class="setting-label">グループID</div><input type="text" id="set-group" maxlength="20" placeholder="例: yamada-family" onchange="App.saveSettings()"></div>
+      <div class="setting-row"><div class="setting-label">GAS URL</div><div class="input-wrap" style="flex:1.4;min-width:0"><input type="url" id="set-gas" onchange="App.saveSettings()"><button class="clear-x">✕</button></div></div>
+      <div class="setting-row"><div class="setting-label">グループID</div><div class="input-wrap" style="flex:1.4;min-width:0"><input type="text" id="set-group" maxlength="20" onchange="App.saveSettings()"><button class="clear-x">✕</button></div></div>
       <button class="btn btn-ghost btn-block" onclick="App.syncNow()">🔄 今すぐ同期(マージ方式)</button>
       <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.7">
         同期はマージ方式です。同じ記録が両方で編集された場合は、更新日時が新しい方を優先します。同期に失敗してもローカルのデータは失われません。
@@ -342,7 +348,7 @@ nav button.active{color:var(--accent)}
 
     <div class="settings-card">
       <button class="btn btn-ghost btn-block" onclick="App.forceUpdate()">♻️ 強制更新(最新版を再読み込み)</button>
-      <div class="ver-label">ランログ v1</div>
+      <div class="ver-label">ランログ v2</div>
     </div>
   </section>
 </main>
@@ -371,7 +377,7 @@ nav button.active{color:var(--accent)}
     </div>
     <div class="form-group">
       <label>メモ</label>
-      <div class="input-wrap"><textarea id="sv-memo" maxlength="200" placeholder="コース、天気、体調など(200文字まで)"></textarea><button class="clear-x">✕</button></div>
+      <div class="input-wrap"><textarea id="sv-memo" maxlength="200"></textarea><button class="clear-x">✕</button></div>
     </div>
     <button class="btn btn-primary btn-block" id="sv-save-btn" onclick="App.commitGpsRun()" style="margin-bottom:8px">保存する</button>
     <button class="btn btn-ghost btn-block" onclick="App.discardGpsRun()">保存せず破棄</button>
@@ -391,15 +397,15 @@ nav button.active{color:var(--accent)}
     </div>
     <div class="form-group" id="grp-dist">
       <label>距離(km)<span class="req">必須</span></label>
-      <div class="input-wrap"><input type="text" inputmode="decimal" id="mn-dist" maxlength="6" placeholder="5.0"><button class="clear-x">✕</button></div>
+      <div class="input-wrap"><input type="text" inputmode="decimal" id="mn-dist" maxlength="6"><button class="clear-x">✕</button></div>
       <div class="field-err" id="err-dist"></div>
     </div>
     <div class="form-group" id="grp-time">
       <label>タイム<span class="req">必須</span></label>
       <div class="time-inputs">
-        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-h" maxlength="2" placeholder="0"></div><span>時間</span>
-        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-m" maxlength="2" placeholder="30"></div><span>分</span>
-        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-s" maxlength="2" placeholder="0"></div><span>秒</span>
+        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-h" maxlength="2"><button class="clear-x">✕</button></div><span>時間</span>
+        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-m" maxlength="2"><button class="clear-x">✕</button></div><span>分</span>
+        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-s" maxlength="2"><button class="clear-x">✕</button></div><span>秒</span>
       </div>
       <div class="field-err" id="err-time"></div>
     </div>
@@ -409,7 +415,7 @@ nav button.active{color:var(--accent)}
     </div>
     <div class="form-group">
       <label>メモ</label>
-      <div class="input-wrap"><textarea id="mn-memo" maxlength="200" placeholder="コース、天気、体調など(200文字まで)"></textarea><button class="clear-x">✕</button></div>
+      <div class="input-wrap"><textarea id="mn-memo" maxlength="200"></textarea><button class="clear-x">✕</button></div>
     </div>
     <button class="btn btn-primary btn-block" id="mn-save-btn" onclick="App.saveManual()">保存する</button>
   </div>
@@ -848,6 +854,10 @@ const App = {
       $("set-group").value = Store.settings.group;
       this.renderHistory(); this.renderStats();
       window.addEventListener("resize", () => this.liveMap.queueRender());
+      // Service Worker登録(PWA・ネットワークファースト。file://直開き時はスキップ)
+      if("serviceWorker" in navigator && location.protocol.startsWith("http")){
+        navigator.serviceWorker.register("sw.js").catch(e => console.warn("SW登録失敗", e));
+      }
     }catch(e){
       console.error("初期化エラー", e);
       document.body.insertAdjacentHTML("beforeend",
@@ -1525,6 +1535,11 @@ const App = {
       if(window.caches){
         const keys = await caches.keys();
         await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      // Service Workerも解除して確実に最新版を取得
+      if("serviceWorker" in navigator){
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
       }
     }catch(e){}
     location.reload(true);
