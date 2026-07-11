@@ -1,0 +1,1542 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!--
+  ランログ (RunLog) v1
+  変更内容:
+  - 初版リリース
+  - GPS計測(距離・タイム・ペース・1kmスプリット・ルート地図)
+  - 手動記録(バリデーション・全角自動変換)
+  - 履歴(月フィルタ・スワイプ削除・詳細シート・編集)
+  - 統計(週/月/年集計・棒グラフ・自己ベスト)
+  - GAS同期(グループ共有・マージ方式・タイムスタンプ優先)
+  - ゴミ箱(ソフトデリート+復元)・JSONエクスポート
+  - ダークモード・強制更新・免責表示
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e1420">
+<title>ランログ</title>
+<style>
+/* ============ カラーテーマ定義 ============ */
+:root{
+  --bg:#f4f6f8; --bg2:#ffffff; --bg3:#eceff3;
+  --text:#17212b; --text2:#4b5a6a; --text3:#8494a5;
+  --line:#dde3ea;
+  --accent:#e85d26; --accent2:#ff8a50; --accent-soft:#fdeee6;
+  --good:#189a6c; --bad:#d43c3c; --sat:#2a6fd1; --sun:#d43c3c;
+  --shadow:0 2px 10px rgba(20,30,40,.08);
+  --sheet-shadow:0 -6px 30px rgba(20,30,40,.18);
+}
+[data-theme="dark"]{
+  --bg:#0e1420; --bg2:#18202e; --bg3:#212b3b;
+  --text:#e8edf3; --text2:#a8b4c2; --text3:#6b7a8c;
+  --line:#2b3648;
+  --accent:#ff7a3d; --accent2:#ffa070; --accent-soft:#3a2418;
+  --good:#2fc48e; --bad:#ff6b6b; --sat:#6aa5ff; --sun:#ff6b6b;
+  --shadow:0 2px 10px rgba(0,0,0,.35);
+  --sheet-shadow:0 -6px 30px rgba(0,0,0,.5);
+}
+/* ============ ベース ============ */
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+  background:var(--bg);color:var(--text);
+  height:100vh;height:100dvh;display:flex;flex-direction:column;
+  overscroll-behavior:none;
+}
+button{font-family:inherit;border:none;background:none;color:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:16px;color:var(--text)}
+/* ============ ヘッダー ============ */
+header{
+  flex:none;display:flex;align-items:center;gap:8px;
+  padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;
+  background:var(--bg2);border-bottom:1px solid var(--line);
+}
+header .app-title{font-size:18px;font-weight:800;letter-spacing:.02em;flex:1}
+header .app-title span{color:var(--accent)}
+.icon-btn{
+  width:40px;height:40px;min-width:40px;border-radius:12px;font-size:18px;
+  display:flex;align-items:center;justify-content:center;background:var(--bg3);
+}
+.icon-btn:active{opacity:.6}
+/* ============ メイン・タブ ============ */
+main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative}
+.view{display:none;padding:14px 14px 30px;max-width:720px;margin:0 auto}
+.view.active{display:block}
+nav{
+  flex:none;display:flex;background:var(--bg2);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+nav button{
+  flex:1;min-height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:2px;font-size:11px;color:var(--text3);font-weight:600;
+}
+nav button .nicon{font-size:20px;line-height:1}
+nav button.active{color:var(--accent)}
+/* ============ カード共通 ============ */
+.card{background:var(--bg2);border-radius:16px;box-shadow:var(--shadow);padding:16px;margin-bottom:12px}
+.card h3{font-size:13px;color:var(--text3);font-weight:700;margin-bottom:10px;letter-spacing:.05em}
+/* ============ 走る画面 ============ */
+.gps-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-bottom:10px}
+.gps-dot{width:9px;height:9px;border-radius:50%;background:var(--text3)}
+.gps-dot.ok{background:var(--good)}
+.gps-dot.weak{background:#e5a417}
+.run-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;text-align:center}
+.metric{padding:6px 0}
+.metric .val{
+  font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.15;
+}
+.metric.big{grid-column:1/-1;padding:2px 0 6px;border-bottom:1px dashed var(--line)}
+.metric.big .val{font-size:56px;color:var(--accent)}
+.metric .lbl{font-size:11px;color:var(--text3);font-weight:700;letter-spacing:.08em;margin-top:2px}
+.map-wrap{position:relative;border-radius:16px;overflow:hidden;box-shadow:var(--shadow);margin-bottom:12px;background:var(--bg3)}
+.map-wrap canvas{display:block;width:100%;height:240px}
+.map-attr{position:absolute;right:4px;bottom:2px;font-size:9px;color:#555;background:rgba(255,255,255,.7);padding:0 4px;border-radius:4px}
+.run-controls{display:flex;gap:12px;justify-content:center;margin-top:6px}
+.run-btn{
+  min-width:110px;min-height:56px;border-radius:28px;font-size:17px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.run-btn:active{transform:scale(.97)}
+.btn-start{background:var(--accent);color:#fff;box-shadow:0 4px 14px rgba(232,93,38,.4);min-width:200px}
+.btn-pause{background:var(--bg3)}
+.btn-stop{background:var(--bad);color:#fff}
+.splits-list{font-variant-numeric:tabular-nums;font-size:14px}
+.splits-list .split-row{display:flex;justify-content:space-between;padding:6px 4px;border-bottom:1px solid var(--line)}
+.splits-list .split-row:last-child{border-bottom:none}
+/* ============ ボタン共通 ============ */
+.btn{
+  min-height:46px;border-radius:12px;font-size:15px;font-weight:700;padding:0 18px;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+}
+.btn:active{opacity:.7}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-ghost{background:var(--bg3)}
+.btn-danger{background:var(--bad);color:#fff}
+.btn-block{width:100%}
+/* ============ 履歴 ============ */
+.filter-row{display:flex;gap:8px;margin-bottom:12px}
+.filter-row select{
+  flex:1;min-height:44px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);
+  padding:0 10px;appearance:none;
+}
+.run-item-wrap{position:relative;overflow:hidden;border-radius:14px;margin-bottom:10px}
+.run-item-del{
+  position:absolute;top:0;right:0;bottom:0;width:78px;background:var(--bad);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;
+}
+.run-item{
+  position:relative;background:var(--bg2);border-radius:14px;box-shadow:var(--shadow);
+  padding:12px 14px;display:flex;align-items:center;gap:12px;
+  transition:transform .18s ease;touch-action:pan-y;
+}
+.run-item .ri-date{min-width:74px}
+.run-item .ri-date .d1{font-size:13px;font-weight:700}
+.run-item .ri-date .d2{font-size:11px;color:var(--text3)}
+.run-item .ri-main{flex:1}
+.run-item .ri-dist{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.run-item .ri-dist small{font-size:12px;font-weight:600;color:var(--text3)}
+.run-item .ri-sub{font-size:12px;color:var(--text2);font-variant-numeric:tabular-nums}
+.run-item .ri-feel{font-size:20px}
+.run-item .ri-x{
+  display:none;position:absolute;top:-6px;right:-6px;width:26px;height:26px;border-radius:50%;
+  background:var(--bad);color:#fff;font-size:13px;align-items:center;justify-content:center;
+}
+@media (hover:hover){ .run-item-wrap:hover .ri-x{display:flex} }
+.wd-sat{color:var(--sat)!important}
+.wd-sun{color:var(--sun)!important}
+.month-head{font-size:13px;font-weight:800;color:var(--text2);margin:16px 2px 8px}
+.user-badge{font-size:10px;background:var(--accent-soft);color:var(--accent);border-radius:6px;padding:1px 6px;font-weight:700;margin-left:6px}
+.empty-state{text-align:center;color:var(--text3);font-size:14px;padding:50px 20px;line-height:2}
+.empty-state .big{font-size:40px}
+/* ============ 統計 ============ */
+.seg{display:flex;background:var(--bg3);border-radius:12px;padding:3px;margin-bottom:12px}
+.seg button{flex:1;min-height:40px;border-radius:10px;font-size:14px;font-weight:700;color:var(--text3)}
+.seg button.active{background:var(--bg2);color:var(--accent);box-shadow:var(--shadow)}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat-cell{background:var(--bg3);border-radius:12px;padding:12px;text-align:center}
+.stat-cell .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.stat-cell .v small{font-size:12px;color:var(--text3)}
+.stat-cell .l{font-size:11px;color:var(--text3);font-weight:700;margin-top:2px}
+#chart-canvas{width:100%;height:180px;display:block}
+.best-row{display:flex;justify-content:space-between;align-items:center;padding:9px 2px;border-bottom:1px solid var(--line);font-size:14px}
+.best-row:last-child{border-bottom:none}
+.best-row .bv{font-weight:800;font-variant-numeric:tabular-nums}
+.best-row .bd{font-size:11px;color:var(--text3);margin-left:8px}
+/* ============ 設定 ============ */
+.setting-row{display:flex;align-items:center;gap:10px;padding:10px 0}
+.setting-label{font-size:14px;font-weight:600;flex:1}
+.setting-row input[type="text"],.setting-row input[type="url"]{
+  flex:1.4;min-height:44px;border:1px solid var(--line);border-radius:10px;padding:0 10px;background:var(--bg);min-width:0;
+}
+.settings-card{background:var(--bg2);border-radius:16px;box-shadow:var(--shadow);padding:14px 16px;margin-bottom:12px}
+.ver-label{font-size:12px;color:var(--text3);text-align:center;margin-top:6px}
+/* ============ シート・トースト ============ */
+.overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;
+  opacity:0;pointer-events:none;transition:opacity .2s;
+}
+.overlay.show{opacity:1;pointer-events:auto}
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--bg2);
+  border-radius:20px 20px 0 0;box-shadow:var(--sheet-shadow);
+  transform:translateY(105%);transition:transform .25s ease;
+  max-height:88dvh;display:flex;flex-direction:column;
+}
+.sheet.show{transform:translateY(0)}
+.sheet-head{
+  flex:none;display:flex;align-items:center;padding:14px 16px 10px;border-bottom:1px solid var(--line);
+}
+.sheet-head .sh-title{flex:1;font-size:16px;font-weight:800}
+.sheet-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 16px calc(env(safe-area-inset-bottom) + 20px)}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;font-weight:700;color:var(--text2);margin-bottom:5px}
+.form-group label .req{color:var(--bad);font-size:10px;border:1px solid var(--bad);border-radius:4px;padding:0 4px;margin-left:5px}
+.input-wrap{position:relative}
+.input-wrap input,.form-group textarea{
+  width:100%;min-height:46px;border:1px solid var(--line);border-radius:10px;padding:0 38px 0 12px;background:var(--bg);
+}
+.form-group textarea{padding:10px 38px 10px 12px;min-height:70px;resize:vertical}
+.clear-x{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;
+  background:var(--bg3);color:var(--text3);font-size:12px;display:none;align-items:center;justify-content:center;
+}
+.field-err{display:none;color:var(--bad);font-size:12px;margin-top:4px}
+.field-err.show{display:block}
+.input-wrap input.err{border-color:var(--bad)}
+.quick-btns{display:flex;gap:8px;margin-top:6px}
+.quick-btns button{min-height:36px;padding:0 14px;border-radius:10px;background:var(--bg3);font-size:13px;font-weight:700}
+.time-inputs{display:flex;gap:8px;align-items:center}
+.time-inputs .input-wrap{flex:1}
+.time-inputs input{padding-right:12px;text-align:center}
+.time-inputs span{color:var(--text3);font-size:13px}
+.feel-select{display:flex;gap:8px;justify-content:space-between}
+.feel-select button{
+  flex:1;min-height:48px;font-size:24px;border-radius:12px;background:var(--bg3);opacity:.45;
+}
+.feel-select button.sel{opacity:1;background:var(--accent-soft);outline:2px solid var(--accent)}
+#toast{
+  position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 86px);transform:translateX(-50%) translateY(20px);
+  background:var(--text);color:var(--bg2);font-size:14px;font-weight:600;padding:11px 20px;border-radius:24px;
+  z-index:99;opacity:0;pointer-events:none;transition:all .25s;display:flex;gap:12px;align-items:center;
+  max-width:90vw;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast button{color:var(--accent2);font-weight:800;font-size:14px;pointer-events:auto}
+.detail-splits{max-height:180px;overflow-y:auto}
+.spinner{
+  width:18px;height:18px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;
+  animation:spin .8s linear infinite;display:inline-block;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="app-title">🏃 ラン<span>ログ</span></div>
+  <button class="icon-btn" id="btn-sync" onclick="App.syncNow()" aria-label="同期">🔄</button>
+  <button class="icon-btn" id="btn-theme" onclick="App.toggleTheme()" aria-label="テーマ切替">🌙</button>
+</header>
+
+<main id="main">
+  <!-- ============ 走る ============ -->
+  <section class="view active" id="view-run">
+    <div class="card">
+      <div class="gps-status"><div class="gps-dot" id="gps-dot"></div><span id="gps-text">GPS待機中(スタートで計測開始)</span></div>
+      <div class="run-metrics">
+        <div class="metric big"><div class="val" id="m-time">0:00</div><div class="lbl">タイム</div></div>
+        <div class="metric"><div class="val" id="m-dist">0.00</div><div class="lbl">距離 km</div></div>
+        <div class="metric"><div class="val" id="m-pace">–'––"</div><div class="lbl">平均ペース /km</div></div>
+        <div class="metric"><div class="val" id="m-curpace">–'––"</div><div class="lbl">直近ペース /km</div></div>
+        <div class="metric"><div class="val" id="m-kcal">0</div><div class="lbl">消費 kcal</div></div>
+      </div>
+    </div>
+    <div class="map-wrap"><canvas id="live-map"></canvas><div class="map-attr">© OpenStreetMap</div></div>
+    <div class="run-controls" id="run-controls">
+      <button class="run-btn btn-start" id="btn-start" onclick="App.startRun()">▶ スタート</button>
+      <button class="run-btn btn-pause" id="btn-pause" onclick="App.togglePause()" style="display:none">⏸ 一時停止</button>
+      <button class="run-btn btn-stop" id="btn-stop" onclick="App.stopRun()" style="display:none">■ 終了</button>
+    </div>
+    <div class="card" id="live-splits-card" style="display:none;margin-top:12px">
+      <h3>スプリット(1kmごと)</h3>
+      <div class="splits-list" id="live-splits"></div>
+    </div>
+  </section>
+
+  <!-- ============ 履歴 ============ -->
+  <section class="view" id="view-history">
+    <div class="filter-row">
+      <select id="filter-month" onchange="App.renderHistory()"></select>
+      <select id="filter-user" onchange="App.renderHistory()"></select>
+      <button class="btn btn-primary" style="min-height:44px" onclick="App.openManual()">＋ 手動記録</button>
+    </div>
+    <div id="history-list"></div>
+  </section>
+
+  <!-- ============ 統計 ============ -->
+  <section class="view" id="view-stats">
+    <div class="seg" id="stats-seg">
+      <button class="active" data-p="week" onclick="App.setStatsPeriod('week')">週</button>
+      <button data-p="month" onclick="App.setStatsPeriod('month')">月</button>
+      <button data-p="year" onclick="App.setStatsPeriod('year')">年</button>
+    </div>
+    <div class="card">
+      <h3 id="stats-period-label">今週</h3>
+      <div class="stat-grid">
+        <div class="stat-cell"><div class="v" id="st-dist">0.0<small> km</small></div><div class="l">距離</div></div>
+        <div class="stat-cell"><div class="v" id="st-count">0<small> 回</small></div><div class="l">ラン回数</div></div>
+        <div class="stat-cell"><div class="v" id="st-time">0:00</div><div class="l">合計時間</div></div>
+        <div class="stat-cell"><div class="v" id="st-pace">–'––"</div><div class="l">平均ペース</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 id="chart-title">週別距離(直近8週)</h3>
+      <canvas id="chart-canvas"></canvas>
+    </div>
+    <div class="card">
+      <h3>自己ベスト</h3>
+      <div id="best-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ 設定 ============ -->
+  <section class="view" id="view-settings">
+    <!-- ご利用にあたって(折りたたみ) -->
+    <div class="settings-card" style="margin-bottom:12px;padding:0;">
+      <div class="setting-row" style="cursor:pointer;user-select:none;padding:14px 16px;margin:0;" onclick="App.toggleNotice()">
+        <div class="setting-label" style="flex:1">⚠️ ご利用にあたって</div>
+        <div style="font-size:12px;color:var(--text3);" id="notice-toggle-icon">▼</div>
+      </div>
+      <div id="notice-body" style="display:none;padding:0 16px 14px;font-size:12px;color:var(--text2);line-height:1.8;">
+        このアプリは開発者が個人利用目的で開発したツールです。勝手に機能・仕様変更し、それに伴い不具合が発生したり、予告なく公開終了する可能性があります。<b>ご利用は自己責任でお願いします。</b><br>
+        データの保証はできません(データは開発者側にはありません)。大切な情報は<b>定期的にご自身でバックアップ</b>してください。<br>
+        困ったときは、開発者と個人的なつながりがある方は開発者に直接ご相談ください。<br>なお、使いやすさ向上のために簡単な操作ログ(個人データは含まず、匿名)を収集するかもしれません。
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <div class="setting-label" style="margin-bottom:6px">👤 プロフィール</div>
+      <div class="setting-row"><div class="setting-label">名前(記録者名)</div><input type="text" id="set-user" maxlength="10" placeholder="例: パパ" onchange="App.saveSettings()"></div>
+      <div class="setting-row"><div class="setting-label">体重(kg・カロリー計算用)</div><input type="text" inputmode="decimal" id="set-weight" maxlength="5" placeholder="60" onchange="App.saveSettings()"></div>
+    </div>
+
+    <div class="settings-card">
+      <div class="setting-label" style="margin-bottom:6px">☁️ 家族・グループ共有(GAS同期)</div>
+      <div class="setting-row"><div class="setting-label">GAS URL</div><input type="url" id="set-gas" placeholder="https://script.google.com/..." onchange="App.saveSettings()"></div>
+      <div class="setting-row"><div class="setting-label">グループID</div><input type="text" id="set-group" maxlength="20" placeholder="例: yamada-family" onchange="App.saveSettings()"></div>
+      <button class="btn btn-ghost btn-block" onclick="App.syncNow()">🔄 今すぐ同期(マージ方式)</button>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.7">
+        同期はマージ方式です。同じ記録が両方で編集された場合は、更新日時が新しい方を優先します。同期に失敗してもローカルのデータは失われません。
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <div class="setting-label" style="margin-bottom:6px">💾 データ</div>
+      <button class="btn btn-ghost btn-block" style="margin-bottom:8px" onclick="App.exportJson()">📤 バックアップ(JSONエクスポート)</button>
+      <button class="btn btn-ghost btn-block" onclick="App.openTrash()">🗑 ゴミ箱を開く</button>
+    </div>
+
+    <div class="settings-card">
+      <button class="btn btn-ghost btn-block" onclick="App.forceUpdate()">♻️ 強制更新(最新版を再読み込み)</button>
+      <div class="ver-label">ランログ v1</div>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button class="active" data-v="run" onclick="App.switchView('run')"><span class="nicon">🏃</span>走る</button>
+  <button data-v="history" onclick="App.switchView('history')"><span class="nicon">📋</span>履歴</button>
+  <button data-v="stats" onclick="App.switchView('stats')"><span class="nicon">📊</span>統計</button>
+  <button data-v="settings" onclick="App.switchView('settings')"><span class="nicon">⚙️</span>設定</button>
+</nav>
+
+<!-- ============ 保存シート(GPS計測終了時) ============ -->
+<div class="overlay" id="ov-save"></div>
+<div class="sheet" id="sheet-save">
+  <div class="sheet-head"><div class="sh-title">🏁 ランを保存</div></div>
+  <div class="sheet-body">
+    <div class="card" style="box-shadow:none;background:var(--bg3)">
+      <div class="run-metrics">
+        <div class="metric"><div class="val" id="sv-dist" style="font-size:26px">0.00</div><div class="lbl">距離 km</div></div>
+        <div class="metric"><div class="val" id="sv-time" style="font-size:26px">0:00</div><div class="lbl">タイム</div></div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>今日の調子</label>
+      <div class="feel-select" id="sv-feel"></div>
+    </div>
+    <div class="form-group">
+      <label>メモ</label>
+      <div class="input-wrap"><textarea id="sv-memo" maxlength="200" placeholder="コース、天気、体調など(200文字まで)"></textarea><button class="clear-x">✕</button></div>
+    </div>
+    <button class="btn btn-primary btn-block" id="sv-save-btn" onclick="App.commitGpsRun()" style="margin-bottom:8px">保存する</button>
+    <button class="btn btn-ghost btn-block" onclick="App.discardGpsRun()">保存せず破棄</button>
+  </div>
+</div>
+
+<!-- ============ 手動記録・編集シート ============ -->
+<div class="overlay" id="ov-manual"></div>
+<div class="sheet" id="sheet-manual">
+  <div class="sheet-head"><div class="sh-title" id="mn-title">＋ 手動で記録</div><button class="icon-btn" onclick="App.closeManual()">✕</button></div>
+  <div class="sheet-body">
+    <div class="form-group">
+      <label>日付<span class="req">必須</span></label>
+      <div class="input-wrap"><input type="date" id="mn-date"></div>
+      <div class="quick-btns"><button onclick="App.setManualDate(0)">今日</button><button onclick="App.setManualDate(-1)">昨日</button></div>
+      <div class="field-err" id="err-date"></div>
+    </div>
+    <div class="form-group" id="grp-dist">
+      <label>距離(km)<span class="req">必須</span></label>
+      <div class="input-wrap"><input type="text" inputmode="decimal" id="mn-dist" maxlength="6" placeholder="5.0"><button class="clear-x">✕</button></div>
+      <div class="field-err" id="err-dist"></div>
+    </div>
+    <div class="form-group" id="grp-time">
+      <label>タイム<span class="req">必須</span></label>
+      <div class="time-inputs">
+        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-h" maxlength="2" placeholder="0"></div><span>時間</span>
+        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-m" maxlength="2" placeholder="30"></div><span>分</span>
+        <div class="input-wrap"><input type="text" inputmode="numeric" id="mn-s" maxlength="2" placeholder="0"></div><span>秒</span>
+      </div>
+      <div class="field-err" id="err-time"></div>
+    </div>
+    <div class="form-group">
+      <label>調子</label>
+      <div class="feel-select" id="mn-feel"></div>
+    </div>
+    <div class="form-group">
+      <label>メモ</label>
+      <div class="input-wrap"><textarea id="mn-memo" maxlength="200" placeholder="コース、天気、体調など(200文字まで)"></textarea><button class="clear-x">✕</button></div>
+    </div>
+    <button class="btn btn-primary btn-block" id="mn-save-btn" onclick="App.saveManual()">保存する</button>
+  </div>
+</div>
+
+<!-- ============ 詳細シート ============ -->
+<div class="overlay" id="ov-detail" onclick="App.closeDetail()"></div>
+<div class="sheet" id="sheet-detail">
+  <div class="sheet-head">
+    <div class="sh-title" id="dt-title">記録の詳細</div>
+    <button class="icon-btn" onclick="App.editFromDetail()" aria-label="編集">✏️</button>
+    <button class="icon-btn" onclick="App.closeDetail()">✕</button>
+  </div>
+  <div class="sheet-body" id="dt-body"></div>
+</div>
+
+<!-- ============ ゴミ箱シート ============ -->
+<div class="overlay" id="ov-trash" onclick="App.closeTrash()"></div>
+<div class="sheet" id="sheet-trash">
+  <div class="sheet-head"><div class="sh-title">🗑 ゴミ箱</div><button class="icon-btn" onclick="App.closeTrash()">✕</button></div>
+  <div class="sheet-body" id="trash-body"></div>
+</div>
+
+<!-- ============ 確認シート(confirm代替) ============ -->
+<div class="overlay" id="ov-confirm"></div>
+<div class="sheet" id="sheet-confirm" style="z-index:60">
+  <div class="sheet-body" style="padding-top:22px">
+    <div id="cf-msg" style="font-size:15px;font-weight:600;line-height:1.7;margin-bottom:18px"></div>
+    <button class="btn btn-danger btn-block" id="cf-ok" style="margin-bottom:8px">OK</button>
+    <button class="btn btn-ghost btn-block" id="cf-cancel">キャンセル</button>
+  </div>
+</div>
+
+<div id="toast"><span id="toast-msg"></span><button id="toast-action" style="display:none"></button></div>
+<script>
+"use strict";
+/* ================================================================
+   ユーティリティ
+================================================================ */
+const $ = id => document.getElementById(id);
+const FEELS = ["😫","😕","🙂","😊","🤩"]; // 調子5段階(1〜5)
+const WDAYS = ["日","月","火","水","木","金","土"];
+
+/* 一意ID生成 */
+function uuid(){
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,9);
+}
+/* 全角数字・記号を半角へ変換し、前後空白を除去 */
+function z2h(s){
+  return String(s||"")
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[．。]/g,".").replace(/[，、]/g,",").replace(/[ー−]/g,"-")
+    .trim();
+}
+/* "YYYY-MM-DD" → ローカルDate(UTCずれ回避のため年月日を分解して生成) */
+function parseDate(str){
+  const [y,m,d] = str.split("-").map(Number);
+  return new Date(y, m-1, d);
+}
+/* Date → "YYYY-MM-DD" */
+function toDateStr(d){
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+/* 端末ローカル基準の今日 */
+function todayStr(){ return toDateStr(new Date()); }
+/* "YYYY-MM-DD" → "2026/7/5(日)" 表示用。cls付きで曜日色クラスも返す */
+function fmtDate(str){
+  const d = parseDate(str);
+  const w = d.getDay();
+  const cls = w===0 ? "wd-sun" : (w===6 ? "wd-sat" : "");
+  return { text: `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}(${WDAYS[w]})`, cls, wday:w };
+}
+/* 秒 → "h:mm:ss" または "m:ss" */
+function fmtTime(sec){
+  sec = Math.round(sec);
+  const h = Math.floor(sec/3600), m = Math.floor(sec%3600/60), s = sec%60;
+  return h>0 ? `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` : `${m}:${String(s).padStart(2,"0")}`;
+}
+/* 秒/km → ペース表記 5'32" */
+function fmtPace(spk){
+  if(!isFinite(spk) || spk<=0) return "–'––\"";
+  spk = Math.round(spk);
+  return `${Math.floor(spk/60)}'${String(spk%60).padStart(2,"0")}"`;
+}
+/* 距離m → km文字列 */
+function fmtKm(m){ return (m/1000).toFixed(2); }
+/* 2点間距離(m) ハバーサイン公式 */
+function haversine(a, b){
+  const R = 6371000, rad = Math.PI/180;
+  const dLat = (b.lat-a.lat)*rad, dLng = (b.lng-a.lng)*rad;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+/* トースト表示。actionLabel/actionFn 指定で「取り消す」等のボタン付き */
+let toastTimer = null;
+function toast(msg, actionLabel, actionFn){
+  $("toast-msg").textContent = msg;
+  const ab = $("toast-action");
+  if(actionLabel){
+    ab.textContent = actionLabel; ab.style.display = "inline";
+    ab.onclick = () => { hideToast(); actionFn && actionFn(); };
+  } else { ab.style.display = "none"; }
+  $("toast").classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, actionLabel ? 5000 : 2500);
+}
+function hideToast(){ $("toast").classList.remove("show"); }
+/* confirm代替のボトムシート */
+function confirmSheet(msg, onOk, okLabel){
+  $("cf-msg").textContent = msg;
+  $("cf-ok").textContent = okLabel || "OK";
+  $("ov-confirm").classList.add("show"); $("sheet-confirm").classList.add("show");
+  const close = () => { $("ov-confirm").classList.remove("show"); $("sheet-confirm").classList.remove("show"); };
+  $("cf-ok").onclick = () => { close(); onOk(); };
+  $("cf-cancel").onclick = close;
+  $("ov-confirm").onclick = close;
+}
+/* シート開閉ヘルパー */
+function openSheet(name){ $("ov-"+name).classList.add("show"); $("sheet-"+name).classList.add("show"); }
+function closeSheet(name){ $("ov-"+name).classList.remove("show"); $("sheet-"+name).classList.remove("show"); }
+
+/* ================================================================
+   データ保存(localStorage) キー: runlog_*
+================================================================ */
+const LS_RUNS = "runlog_runs";
+const LS_SETTINGS = "runlog_settings";
+const LS_THEME = "runlog_theme";
+const DATA_VERSION = 1;
+
+const Store = {
+  runs: [],      // 全記録(削除済み含む。deleted:trueはゴミ箱)
+  settings: { user:"", weight:"", gasUrl:"", group:"" },
+
+  /* 起動時読み込み。壊れたデータでも起動できるようtry-catch */
+  load(){
+    try{
+      const raw = JSON.parse(localStorage.getItem(LS_RUNS) || "null");
+      if(raw && Array.isArray(raw.items)){
+        // バージョン移行が必要になった場合はここで raw.version を見て変換する
+        this.runs = raw.items;
+      }
+    }catch(e){ console.error("runs読込失敗", e); this.runs = []; }
+    try{
+      const s = JSON.parse(localStorage.getItem(LS_SETTINGS) || "null");
+      if(s) Object.assign(this.settings, s);
+    }catch(e){ console.error("settings読込失敗", e); }
+  },
+  saveRuns(){
+    try{
+      localStorage.setItem(LS_RUNS, JSON.stringify({ version: DATA_VERSION, items: this.runs }));
+    }catch(e){ toast("保存に失敗しました。空き容量を確認してください"); }
+  },
+  saveSettings(){
+    localStorage.setItem(LS_SETTINGS, JSON.stringify(this.settings));
+  },
+  /* 有効(未削除)の記録を日付降順で返す */
+  active(){
+    return this.runs.filter(r => !r.deleted)
+      .sort((a,b) => (b.date+String(b.startTime||"")).localeCompare(a.date+String(a.startTime||"")));
+  },
+  find(id){ return this.runs.find(r => r.id === id); }
+};
+
+/* ================================================================
+   ミニマップ(OpenStreetMapタイル + Canvas描画、ライブラリ不使用)
+================================================================ */
+class MiniMap {
+  constructor(canvas){
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.tiles = {};          // タイル画像キャッシュ {"z/x/y": Image}
+    this.route = [];          // [{lat,lng},...]
+    this.mode = "fit";        // fit=全体表示 / follow=現在地追従
+    this.renderQueued = false;
+  }
+  /* 経度→ワールドpx(x) */
+  lng2x(lng, z){ return (lng + 180) / 360 * 256 * Math.pow(2, z); }
+  /* 緯度→ワールドpx(y) */
+  lat2y(lat, z){
+    const r = lat * Math.PI / 180;
+    return (1 - Math.log(Math.tan(r) + 1/Math.cos(r)) / Math.PI) / 2 * 256 * Math.pow(2, z);
+  }
+  setRoute(pts, mode){
+    this.route = pts; this.mode = mode || "fit";
+    this.render();
+  }
+  /* 描画(タイル読み込み完了時にも再帰的に呼ばれる) */
+  render(){
+    const cv = this.canvas, ctx = this.ctx;
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if(w === 0 || h === 0) return;
+    if(cv.width !== w*dpr){ cv.width = w*dpr; cv.height = h*dpr; }
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.fillStyle = "#dfe6ec"; ctx.fillRect(0,0,w,h);
+
+    if(this.route.length === 0){
+      ctx.fillStyle = "#8a97a5"; ctx.font = "13px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("スタートするとルートが表示されます", w/2, h/2);
+      return;
+    }
+    /* 中心とズームを決定 */
+    let z, cx, cy;
+    if(this.mode === "follow"){
+      z = 16;
+      const p = this.route[this.route.length-1];
+      cx = this.lng2x(p.lng, z); cy = this.lat2y(p.lat, z);
+    } else {
+      // ルート全体が収まる最大ズームを探す(3〜17)
+      let lats = this.route.map(p=>p.lat), lngs = this.route.map(p=>p.lng);
+      const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+      const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+      z = 17;
+      for(; z > 3; z--){
+        const bw = this.lng2x(maxLng,z) - this.lng2x(minLng,z);
+        const bh = this.lat2y(minLat,z) - this.lat2y(maxLat,z);
+        if(bw < w*0.8 && bh < h*0.8) break;
+      }
+      cx = (this.lng2x(minLng,z) + this.lng2x(maxLng,z)) / 2;
+      cy = (this.lat2y(minLat,z) + this.lat2y(maxLat,z)) / 2;
+    }
+    const tlx = cx - w/2, tly = cy - h/2; // 画面左上のワールドpx
+    /* タイル描画 */
+    const maxTile = Math.pow(2, z);
+    const tx0 = Math.floor(tlx/256), tx1 = Math.floor((tlx+w)/256);
+    const ty0 = Math.floor(tly/256), ty1 = Math.floor((tly+h)/256);
+    for(let tx = tx0; tx <= tx1; tx++){
+      for(let ty = ty0; ty <= ty1; ty++){
+        if(ty < 0 || ty >= maxTile) continue;
+        const wx = ((tx % maxTile) + maxTile) % maxTile; // 経度方向はラップ
+        const key = `${z}/${wx}/${ty}`;
+        let img = this.tiles[key];
+        if(!img){
+          img = new Image();
+          img.onload = () => this.queueRender();
+          img.onerror = () => {}; // オフライン時はグレー背景のまま
+          img.src = `https://tile.openstreetmap.org/${z}/${wx}/${ty}.png`;
+          this.tiles[key] = img;
+          // キャッシュが増えすぎたら古いものから破棄(メモリ対策)
+          const keys = Object.keys(this.tiles);
+          if(keys.length > 120) delete this.tiles[keys[0]];
+        }
+        if(img.complete && img.naturalWidth > 0){
+          ctx.drawImage(img, tx*256 - tlx, ty*256 - tly, 256, 256);
+        }
+      }
+    }
+    /* ルート線 */
+    ctx.beginPath();
+    this.route.forEach((p,i) => {
+      const px = this.lng2x(p.lng,z) - tlx, py = this.lat2y(p.lat,z) - tly;
+      i===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+    });
+    ctx.strokeStyle = "#e85d26"; ctx.lineWidth = 4; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.stroke();
+    /* スタート(緑)・現在/ゴール(オレンジ)マーカー */
+    const drawDot = (p, color) => {
+      const px = this.lng2x(p.lng,z) - tlx, py = this.lat2y(p.lat,z) - tly;
+      ctx.beginPath(); ctx.arc(px,py,7,0,Math.PI*2);
+      ctx.fillStyle = color; ctx.fill();
+      ctx.lineWidth = 2.5; ctx.strokeStyle = "#fff"; ctx.stroke();
+    };
+    drawDot(this.route[0], "#189a6c");
+    if(this.route.length > 1) drawDot(this.route[this.route.length-1], "#e85d26");
+  }
+  /* タイル読み込みのたびの過剰再描画をrequestAnimationFrameでまとめる */
+  queueRender(){
+    if(this.renderQueued) return;
+    this.renderQueued = true;
+    requestAnimationFrame(() => { this.renderQueued = false; this.render(); });
+  }
+}
+/* ================================================================
+   GPS計測(Run)モジュール
+================================================================ */
+const Run = {
+  active: false,      // 計測中か
+  paused: false,      // 一時停止中か
+  watchId: null,      // watchPositionのID
+  points: [],         // ルート座標 [{lat,lng,t}]
+  distance: 0,        // 累計距離(m)
+  splits: [],         // 1kmごとの所要秒
+  lastSplitSec: 0,    // 前回スプリット確定時の走行秒
+  accumSec: 0,        // 一時停止までに確定した走行秒
+  segStart: 0,        // 現セグメント開始時刻(epoch ms)
+  startTime: null,    // 開始日時(ISO)
+  lastPoint: null,    // 直前の有効座標
+  recent: [],         // 直近ペース計算用 [{d累計m, sec}]
+  tickTimer: null,
+  wakeLock: null,
+
+  /* 計測開始 */
+  start(){
+    if(!navigator.geolocation){ toast("この端末はGPSに対応していません"); return; }
+    this.active = true; this.paused = false;
+    this.points = []; this.distance = 0; this.splits = []; this.lastSplitSec = 0;
+    this.accumSec = 0; this.segStart = Date.now(); this.startTime = new Date().toISOString();
+    this.lastPoint = null; this.recent = [];
+    $("gps-text").textContent = "GPS取得中…";
+    this.watchId = navigator.geolocation.watchPosition(
+      pos => this.onPos(pos),
+      err => {
+        $("gps-dot").className = "gps-dot";
+        $("gps-text").textContent = "GPSを取得できません。位置情報の許可を確認してください";
+      },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
+    );
+    // タイマーは経過時間の加算ではなく現在時刻との比較で表示(バックグラウンド停止対策)
+    this.tickTimer = setInterval(() => App.updateRunDisplay(), 500);
+    this.requestWakeLock();
+    App.updateRunButtons();
+  },
+  /* 位置情報受信時の処理 */
+  onPos(pos){
+    const acc = pos.coords.accuracy;
+    // GPS精度インジケータ更新
+    $("gps-dot").className = "gps-dot " + (acc <= 20 ? "ok" : (acc <= 50 ? "weak" : ""));
+    $("gps-text").textContent = `GPS精度: ±${Math.round(acc)}m`;
+    if(this.paused) return;
+    if(acc > 35) return; // 精度の悪い点は距離計算に使わない
+    const p = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: pos.timestamp || Date.now() };
+    if(this.lastPoint){
+      const d = haversine(this.lastPoint, p);
+      const dt = (p.t - this.lastPoint.t) / 1000;
+      if(dt <= 0) return;
+      if(d / dt > 10) return;         // 時速36km超のジャンプはGPS飛びとして無視
+      if(d < 2) { this.lastPoint.t = p.t; return; } // 静止時の微小揺れは加算しない
+      this.distance += d;
+      // 1kmごとのスプリット確定
+      while(this.distance >= (this.splits.length + 1) * 1000){
+        const sec = this.movingSec();
+        this.splits.push(sec - this.lastSplitSec);
+        this.lastSplitSec = sec;
+        App.renderLiveSplits();
+      }
+      // 直近ペース用の履歴(直近60秒分を保持)
+      this.recent.push({ d: this.distance, sec: this.movingSec() });
+      this.recent = this.recent.filter(r => this.movingSec() - r.sec <= 60);
+    }
+    this.lastPoint = p;
+    this.points.push(p);
+    App.liveMap.setRoute(this.points, "follow");
+  },
+  /* 走行秒(一時停止を除く) */
+  movingSec(){
+    return this.accumSec + (this.active && !this.paused ? (Date.now() - this.segStart) / 1000 : 0);
+  },
+  /* 直近60秒の平均から現在ペースを算出(秒/km) */
+  currentPace(){
+    if(this.recent.length < 2) return NaN;
+    const a = this.recent[0], b = this.recent[this.recent.length-1];
+    const dd = b.d - a.d, ds = b.sec - a.sec;
+    return dd > 5 ? ds / (dd/1000) : NaN;
+  },
+  pause(){
+    this.accumSec = this.movingSec();
+    this.paused = true;
+    this.lastPoint = null; // 再開時に停止中の移動を距離に含めない
+  },
+  resume(){
+    this.segStart = Date.now();
+    this.paused = false;
+  },
+  /* 計測終了。記録オブジェクトを返す */
+  stop(){
+    if(this.watchId !== null){ navigator.geolocation.clearWatch(this.watchId); this.watchId = null; }
+    clearInterval(this.tickTimer);
+    const sec = Math.round(this.movingSec());
+    this.active = false; this.paused = false;
+    this.releaseWakeLock();
+    return {
+      distance: Math.round(this.distance),
+      duration: sec,
+      splits: this.splits.slice(),
+      route: this.thinRoute(this.points, 600),
+      startTime: this.startTime
+    };
+  },
+  /* ルート座標を最大n点に間引き(保存容量対策) */
+  thinRoute(pts, n){
+    const src = pts.map(p => [ +p.lat.toFixed(5), +p.lng.toFixed(5) ]);
+    if(src.length <= n) return src;
+    const out = [];
+    const step = (src.length - 1) / (n - 1);
+    for(let i = 0; i < n; i++) out.push(src[Math.round(i*step)]);
+    return out;
+  },
+  /* 画面消灯防止(Wake Lock、対応端末のみ) */
+  async requestWakeLock(){
+    try{ this.wakeLock = await navigator.wakeLock?.request("screen"); }catch(e){}
+  },
+  releaseWakeLock(){
+    try{ this.wakeLock?.release(); this.wakeLock = null; }catch(e){}
+  }
+};
+/* バックグラウンド復帰時: 表示を現在時刻基準で再計算し、WakeLockを再取得 */
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible" && Run.active){
+    App.updateRunDisplay();
+    if(!Run.paused) Run.requestWakeLock();
+  }
+});
+
+/* ================================================================
+   アプリ本体
+================================================================ */
+const App = {
+  liveMap: null,
+  detailMap: null,
+  statsPeriod: "week",
+  editingId: null,     // 手動シートで編集中の記録ID(新規はnull)
+  detailId: null,      // 詳細シートで表示中の記録ID
+  mnFeel: 3, svFeel: 3,
+  pendingGps: null,    // 終了直後・保存前のGPS計測結果
+  scrollPos: {},       // 画面ごとのスクロール位置退避
+
+  /* ---------- 初期化 ---------- */
+  init(){
+    try{
+      Store.load();
+      // テーマ復元
+      const th = localStorage.getItem(LS_THEME) || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.dataset.theme = th;
+      $("btn-theme").textContent = th === "dark" ? "☀️" : "🌙";
+      this.liveMap = new MiniMap($("live-map"));
+      this.liveMap.render();
+      this.buildFeelButtons("sv-feel", v => { this.svFeel = v; });
+      this.buildFeelButtons("mn-feel", v => { this.mnFeel = v; });
+      this.bindClearButtons();
+      this.bindNumericInputs();
+      this.bindSwipeDelete();
+      // 設定値をフォームへ反映
+      $("set-user").value = Store.settings.user;
+      $("set-weight").value = Store.settings.weight;
+      $("set-gas").value = Store.settings.gasUrl;
+      $("set-group").value = Store.settings.group;
+      this.renderHistory(); this.renderStats();
+      window.addEventListener("resize", () => this.liveMap.queueRender());
+    }catch(e){
+      console.error("初期化エラー", e);
+      document.body.insertAdjacentHTML("beforeend",
+        '<div style="position:fixed;inset:0;background:#fff;color:#333;padding:30px;z-index:999">起動に失敗しました。再読み込みしてください。</div>');
+    }
+  },
+
+  /* ---------- 画面切替(スクロール位置を保存・復元) ---------- */
+  switchView(name){
+    const cur = document.querySelector(".view.active");
+    if(cur) this.scrollPos[cur.id] = $("main").scrollTop;
+    document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-"+name));
+    document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.v === name));
+    $("main").scrollTop = this.scrollPos["view-"+name] || 0;
+    if(name === "history") this.renderHistory();
+    if(name === "stats") this.renderStats();
+  },
+
+  toggleTheme(){
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem(LS_THEME, next);
+    $("btn-theme").textContent = next === "dark" ? "☀️" : "🌙";
+  },
+
+  toggleNotice(){
+    const body = $("notice-body");
+    const open = body.style.display === "none";
+    body.style.display = open ? "block" : "none";
+    $("notice-toggle-icon").textContent = open ? "▲" : "▼";
+  },
+
+  /* 調子選択ボタン群を生成 */
+  buildFeelButtons(id, onSel){
+    const box = $(id);
+    box.innerHTML = "";
+    FEELS.forEach((emo, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = emo;
+      b.onclick = () => {
+        onSel(i+1);
+        [...box.children].forEach((c,j) => c.classList.toggle("sel", j===i));
+      };
+      box.appendChild(b);
+    });
+  },
+  setFeelUI(id, val){
+    [...$(id).children].forEach((c,j) => c.classList.toggle("sel", j === val-1));
+  },
+
+  /* テキスト欄の✕クリアボタン制御 */
+  bindClearButtons(){
+    document.querySelectorAll(".input-wrap").forEach(wrap => {
+      const inp = wrap.querySelector("input,textarea");
+      const x = wrap.querySelector(".clear-x");
+      if(!inp || !x) return;
+      const update = () => { x.style.display = inp.value ? "flex" : "none"; };
+      inp.addEventListener("input", update);
+      inp.addEventListener("focus", update);
+      x.addEventListener("click", () => { inp.value = ""; update(); inp.focus(); });
+      update();
+    });
+  },
+
+  /* 数値系入力: フォーカスで全選択、Enterで確定(blur) */
+  bindNumericInputs(){
+    ["mn-dist","mn-h","mn-m","mn-s","set-weight"].forEach(id => {
+      const inp = $(id);
+      inp.addEventListener("focus", () => setTimeout(() => inp.select(), 0));
+      inp.addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); inp.blur(); } });
+    });
+    ["sv-memo","mn-memo"].forEach(id => {
+      $(id).addEventListener("focus", () => {
+        const el = $(id); el.setSelectionRange(el.value.length, el.value.length);
+      });
+    });
+  },
+
+  /* ---------- 走る(GPS) ---------- */
+  startRun(){ Run.start(); },
+  togglePause(){
+    if(Run.paused){ Run.resume(); toast("再開しました"); }
+    else { Run.pause(); toast("一時停止中"); }
+    this.updateRunButtons();
+  },
+  updateRunButtons(){
+    $("btn-start").style.display = Run.active ? "none" : "flex";
+    $("btn-pause").style.display = Run.active ? "flex" : "none";
+    $("btn-stop").style.display = Run.active ? "flex" : "none";
+    $("btn-pause").innerHTML = Run.paused ? "▶ 再開" : "⏸ 一時停止";
+    $("live-splits-card").style.display = Run.active && Run.splits.length ? "block" : "none";
+  },
+  /* 計測中の数値表示更新(500msごと+復帰時) */
+  updateRunDisplay(){
+    const sec = Run.movingSec();
+    $("m-time").textContent = fmtTime(sec);
+    $("m-dist").textContent = fmtKm(Run.distance);
+    $("m-pace").textContent = Run.distance > 30 ? fmtPace(sec / (Run.distance/1000)) : "–'––\"";
+    $("m-curpace").textContent = fmtPace(Run.currentPace());
+    $("m-kcal").textContent = this.calcKcal(Run.distance);
+  },
+  renderLiveSplits(){
+    $("live-splits-card").style.display = Run.splits.length ? "block" : "none";
+    $("live-splits").innerHTML = Run.splits.map((s,i) =>
+      `<div class="split-row"><span>${i+1} km</span><b>${fmtPace(s)}</b></div>`).join("");
+  },
+  calcKcal(distM){
+    const w = parseFloat(z2h(Store.settings.weight)) || 60; // 未設定時は60kg
+    return Math.round(w * (distM/1000) * 1.05);
+  },
+  /* 終了ボタン → 保存シートへ */
+  stopRun(){
+    confirmSheet("計測を終了しますか?", () => {
+      const r = Run.stop();
+      this.updateRunButtons();
+      if(r.distance < 30){
+        // 30m未満は記録として保存しない
+        toast("距離が短いため記録しませんでした");
+        this.resetRunView();
+        return;
+      }
+      this.pendingGps = r;
+      $("sv-dist").textContent = fmtKm(r.distance);
+      $("sv-time").textContent = fmtTime(r.duration);
+      $("sv-memo").value = "";
+      this.svFeel = 3; this.setFeelUI("sv-feel", 3);
+      openSheet("save");
+    }, "終了する");
+  },
+  commitGpsRun(){
+    const btn = $("sv-save-btn");
+    btn.disabled = true; // 連打による二重登録防止
+    const r = this.pendingGps;
+    const run = {
+      id: uuid(), type: "gps",
+      date: toDateStr(new Date(r.startTime)), // ローカル時刻基準の日付
+      startTime: r.startTime,
+      distance: r.distance, duration: r.duration,
+      splits: r.splits, route: r.route,
+      kcal: this.calcKcal(r.distance),
+      feel: this.svFeel,
+      memo: $("sv-memo").value.trim(),
+      user: Store.settings.user || "",
+      updatedAt: Date.now(), deleted: false
+    };
+    Store.runs.push(run);
+    Store.saveRuns();
+    closeSheet("save");
+    btn.disabled = false;
+    this.pendingGps = null;
+    this.resetRunView();
+    toast("保存しました 🎉");
+    this.renderHistory(); this.renderStats();
+    this.autoSync();
+  },
+  discardGpsRun(){
+    confirmSheet("この計測結果を保存せずに破棄しますか?", () => {
+      closeSheet("save");
+      this.pendingGps = null;
+      this.resetRunView();
+      toast("破棄しました");
+    }, "破棄する");
+  },
+  resetRunView(){
+    $("m-time").textContent = "0:00"; $("m-dist").textContent = "0.00";
+    $("m-pace").textContent = "–'––\""; $("m-curpace").textContent = "–'––\"";
+    $("m-kcal").textContent = "0";
+    $("gps-dot").className = "gps-dot";
+    $("gps-text").textContent = "GPS待機中(スタートで計測開始)";
+    $("live-splits-card").style.display = "none";
+    this.liveMap.setRoute([], "fit");
+  },
+  /* ---------- 手動記録・編集 ---------- */
+  openManual(editRun){
+    this.editingId = editRun ? editRun.id : null;
+    $("mn-title").textContent = editRun ? "✏️ 記録を編集" : "＋ 手動で記録";
+    // GPS記録の編集時は距離・タイムを変更不可(計測値の整合性を守る)
+    const isGps = editRun && editRun.type === "gps";
+    $("grp-dist").style.display = isGps ? "none" : "block";
+    $("grp-time").style.display = isGps ? "none" : "block";
+    if(editRun){
+      $("mn-date").value = editRun.date;
+      $("mn-dist").value = (editRun.distance/1000).toFixed(2);
+      $("mn-h").value = Math.floor(editRun.duration/3600) || "";
+      $("mn-m").value = Math.floor(editRun.duration%3600/60);
+      $("mn-s").value = editRun.duration%60;
+      $("mn-memo").value = editRun.memo || "";
+      this.mnFeel = editRun.feel || 3;
+    } else {
+      $("mn-date").value = todayStr();
+      $("mn-dist").value = ""; $("mn-h").value = ""; $("mn-m").value = ""; $("mn-s").value = "";
+      $("mn-memo").value = "";
+      this.mnFeel = 3;
+    }
+    this.setFeelUI("mn-feel", this.mnFeel);
+    this.clearErrors();
+    openSheet("manual");
+  },
+  closeManual(){ closeSheet("manual"); },
+  setManualDate(offset){
+    const d = new Date(); d.setDate(d.getDate() + offset);
+    $("mn-date").value = toDateStr(d);
+  },
+  clearErrors(){
+    document.querySelectorAll(".field-err").forEach(e => e.classList.remove("show"));
+    document.querySelectorAll(".input-wrap input.err").forEach(e => e.classList.remove("err"));
+  },
+  showError(errId, inputId, msg){
+    $(errId).textContent = msg; $(errId).classList.add("show");
+    if(inputId) $(inputId).classList.add("err");
+  },
+  /* 手動記録の保存(バリデーション付き) */
+  saveManual(){
+    this.clearErrors();
+    const editRun = this.editingId ? Store.find(this.editingId) : null;
+    const isGps = editRun && editRun.type === "gps";
+    let firstErr = null;
+
+    // 日付検証
+    const dateVal = $("mn-date").value;
+    if(!dateVal){
+      this.showError("err-date", null, "日付を入力してください");
+      firstErr = firstErr || $("mn-date");
+    } else if(dateVal > todayStr()){
+      this.showError("err-date", null, "未来の日付は登録できません");
+      firstErr = firstErr || $("mn-date");
+    }
+
+    let distM = editRun ? editRun.distance : 0;
+    let durSec = editRun ? editRun.duration : 0;
+    if(!isGps){
+      // 距離検証(全角→半角変換してから)
+      const dRaw = z2h($("mn-dist").value);
+      $("mn-dist").value = dRaw;
+      const dNum = parseFloat(dRaw);
+      if(!dRaw || isNaN(dNum) || dNum <= 0){
+        this.showError("err-dist", "mn-dist", "距離を数値で入力してください(例: 5.0)");
+        firstErr = firstErr || $("mn-dist");
+      } else if(dNum > 300){
+        this.showError("err-dist", "mn-dist", "距離は300km以下で入力してください");
+        firstErr = firstErr || $("mn-dist");
+      } else {
+        distM = Math.round(dNum * 1000);
+      }
+      // タイム検証
+      const h = parseInt(z2h($("mn-h").value)) || 0;
+      const m = parseInt(z2h($("mn-m").value)) || 0;
+      const s = parseInt(z2h($("mn-s").value)) || 0;
+      if(m > 59 || s > 59){
+        this.showError("err-time", null, "分・秒は59以下で入力してください");
+        firstErr = firstErr || $("mn-m");
+      } else if(h*3600 + m*60 + s <= 0){
+        this.showError("err-time", null, "タイムを入力してください(例: 30分)");
+        firstErr = firstErr || $("mn-m");
+      } else {
+        durSec = h*3600 + m*60 + s;
+      }
+    }
+    if(firstErr){
+      // 最初のエラー欄まで自動スクロール
+      firstErr.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    const btn = $("mn-save-btn");
+    btn.disabled = true; // 二重登録防止
+    if(editRun){
+      editRun.date = dateVal;
+      editRun.distance = distM;
+      editRun.duration = durSec;
+      editRun.feel = this.mnFeel;
+      editRun.memo = $("mn-memo").value.trim();
+      if(!isGps) editRun.kcal = this.calcKcal(distM);
+      editRun.updatedAt = Date.now();
+      toast("更新しました");
+    } else {
+      Store.runs.push({
+        id: uuid(), type: "manual",
+        date: dateVal, startTime: null,
+        distance: distM, duration: durSec,
+        splits: [], route: [],
+        kcal: this.calcKcal(distM),
+        feel: this.mnFeel,
+        memo: $("mn-memo").value.trim(),
+        user: Store.settings.user || "",
+        updatedAt: Date.now(), deleted: false
+      });
+      toast("保存しました 🎉");
+    }
+    Store.saveRuns();
+    btn.disabled = false;
+    closeSheet("manual");
+    if(this.detailId) this.closeDetail();
+    this.renderHistory(); this.renderStats();
+    this.autoSync();
+  },
+
+  /* ---------- 履歴 ---------- */
+  renderHistory(){
+    const runs = Store.active();
+    // 月フィルタの選択肢を構築(存在する月のみ)
+    const months = [...new Set(runs.map(r => r.date.slice(0,7)))].sort().reverse();
+    const mSel = $("filter-month");
+    const mPrev = mSel.value;
+    mSel.innerHTML = '<option value="">全期間</option>' +
+      months.map(m => {
+        const [y,mo] = m.split("-");
+        return `<option value="${m}">${y}年${+mo}月</option>`;
+      }).join("");
+    if([...mSel.options].some(o => o.value === mPrev)) mSel.value = mPrev;
+    // ユーザーフィルタ(複数ユーザーがいる場合のみ表示)
+    const users = [...new Set(runs.map(r => r.user).filter(Boolean))];
+    const uSel = $("filter-user");
+    const uPrev = uSel.value;
+    uSel.style.display = users.length > 1 ? "block" : "none";
+    uSel.innerHTML = '<option value="">全員</option>' + users.map(u => `<option value="${u}">${u}</option>`).join("");
+    if([...uSel.options].some(o => o.value === uPrev)) uSel.value = uPrev;
+
+    let list = runs;
+    if(mSel.value) list = list.filter(r => r.date.startsWith(mSel.value));
+    if(uSel.value && users.length > 1) list = list.filter(r => r.user === uSel.value);
+
+    const box = $("history-list");
+    if(list.length === 0){
+      box.innerHTML = `<div class="empty-state"><div class="big">🏃</div>まだ記録がありません。<br>「走る」タブで計測するか、<br>「＋手動記録」から追加してください。</div>`;
+      return;
+    }
+    // 月ごとにグループ化して表示
+    let html = "", curMonth = "";
+    list.forEach(r => {
+      const mon = r.date.slice(0,7);
+      if(mon !== curMonth){
+        curMonth = mon;
+        const [y,mo] = mon.split("-");
+        const monthSum = list.filter(x => x.date.startsWith(mon)).reduce((s,x) => s + x.distance, 0);
+        html += `<div class="month-head">${y}年${+mo}月 ・ 合計 ${fmtKm(monthSum)} km</div>`;
+      }
+      const fd = fmtDate(r.date);
+      const pace = r.distance > 0 ? fmtPace(r.duration / (r.distance/1000)) : "–";
+      html += `
+      <div class="run-item-wrap" data-id="${r.id}">
+        <div class="run-item-del" onclick="App.softDelete('${r.id}')">削除</div>
+        <div class="run-item" onclick="App.openDetail('${r.id}')">
+          <div class="ri-date"><div class="d1 ${fd.cls}">${fd.text.slice(5)}</div><div class="d2">${r.date.slice(0,4)}${r.type==="gps"?" 📍GPS":""}</div></div>
+          <div class="ri-main">
+            <div class="ri-dist">${fmtKm(r.distance)}<small> km</small>${r.user ? `<span class="user-badge">${this.esc(r.user)}</span>` : ""}</div>
+            <div class="ri-sub">${fmtTime(r.duration)} ・ ${pace}/km</div>
+          </div>
+          <div class="ri-feel">${FEELS[(r.feel||3)-1]}</div>
+          <button class="ri-x" onclick="event.stopPropagation();App.softDelete('${r.id}')">✕</button>
+        </div>
+      </div>`;
+    });
+    box.innerHTML = html;
+  },
+  esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); },
+
+  /* 履歴アイテムの左スワイプで削除ボタンを表示(スマホ用) */
+  bindSwipeDelete(){
+    let startX = 0, startY = 0, target = null, swiping = false;
+    const list = $("history-list");
+    list.addEventListener("touchstart", e => {
+      const item = e.target.closest(".run-item");
+      if(!item) return;
+      // 既に開いている他のアイテムを閉じる
+      list.querySelectorAll(".run-item").forEach(el => { if(el !== item) el.style.transform = ""; });
+      target = item; swiping = false;
+      startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    }, { passive: true });
+    list.addEventListener("touchmove", e => {
+      if(!target) return;
+      const dx = e.touches[0].clientX - startX, dy = e.touches[0].clientY - startY;
+      if(!swiping && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)*1.5) swiping = true;
+      if(swiping) target.style.transform = `translateX(${Math.max(-78, Math.min(0, dx))}px)`;
+    }, { passive: true });
+    list.addEventListener("touchend", () => {
+      if(!target) return;
+      if(swiping){
+        const m = /translateX\((-?\d+)/.exec(target.style.transform);
+        const x = m ? +m[1] : 0;
+        target.style.transform = x < -40 ? "translateX(-78px)" : "";
+        if(x < -40) target.dataset.swiped = "1";
+      }
+      target = null;
+    });
+    // スワイプで開いた直後のタップは詳細を開かない
+    list.addEventListener("click", e => {
+      const item = e.target.closest(".run-item");
+      if(item && item.dataset.swiped){
+        delete item.dataset.swiped;
+        item.style.transform = "";
+        e.stopPropagation();
+      }
+    }, true);
+  },
+
+  /* ソフトデリート(ゴミ箱へ)+ トーストで取り消し可能 */
+  softDelete(id){
+    const r = Store.find(id);
+    if(!r) return;
+    r.deleted = true; r.updatedAt = Date.now();
+    Store.saveRuns();
+    this.renderHistory(); this.renderStats();
+    if(this.detailId === id) this.closeDetail();
+    toast("ゴミ箱に移動しました", "取り消す", () => {
+      r.deleted = false; r.updatedAt = Date.now();
+      Store.saveRuns();
+      this.renderHistory(); this.renderStats();
+    });
+  },
+
+  /* ---------- 詳細シート ---------- */
+  openDetail(id){
+    const r = Store.find(id);
+    if(!r) return;
+    this.detailId = id;
+    const fd = fmtDate(r.date);
+    const pace = r.distance > 0 ? fmtPace(r.duration / (r.distance/1000)) : "–";
+    $("dt-title").innerHTML = `<span class="${fd.cls}">${fd.text}</span>`;
+    let html = `
+      <div class="card" style="box-shadow:none;background:var(--bg3)">
+        <div class="run-metrics">
+          <div class="metric"><div class="val" style="font-size:26px">${fmtKm(r.distance)}</div><div class="lbl">距離 km</div></div>
+          <div class="metric"><div class="val" style="font-size:26px">${fmtTime(r.duration)}</div><div class="lbl">タイム</div></div>
+          <div class="metric"><div class="val" style="font-size:22px">${pace}</div><div class="lbl">平均ペース /km</div></div>
+          <div class="metric"><div class="val" style="font-size:22px">${r.kcal||0}</div><div class="lbl">消費 kcal</div></div>
+        </div>
+      </div>`;
+    if(r.route && r.route.length > 1){
+      html += `<div class="map-wrap"><canvas id="detail-map"></canvas><div class="map-attr">© OpenStreetMap</div></div>`;
+    }
+    if(r.splits && r.splits.length){
+      html += `<div class="card" style="box-shadow:none;background:var(--bg3)"><h3>スプリット</h3><div class="splits-list detail-splits">` +
+        r.splits.map((s,i) => `<div class="split-row"><span>${i+1} km</span><b>${fmtPace(s)}</b></div>`).join("") + `</div></div>`;
+    }
+    html += `<div style="font-size:14px;line-height:1.8;padding:4px 2px">
+      調子: ${FEELS[(r.feel||3)-1]}${r.user ? ` ・ 記録者: ${this.esc(r.user)}` : ""}${r.type === "gps" ? " ・ 📍GPS計測" : " ・ ✍️手動記録"}<br>
+      ${r.memo ? "📝 " + this.esc(r.memo) : '<span style="color:var(--text3)">メモなし</span>'}</div>`;
+    html += `<button class="btn btn-ghost btn-block" style="margin-top:10px;color:var(--bad)" onclick="App.softDelete('${r.id}')">🗑 この記録を削除</button>`;
+    $("dt-body").innerHTML = html;
+    openSheet("detail");
+    if(r.route && r.route.length > 1){
+      // シートの開くアニメーション後に描画(canvasサイズ確定待ち)
+      setTimeout(() => {
+        const mm = new MiniMap($("detail-map"));
+        mm.setRoute(r.route.map(p => ({lat:p[0], lng:p[1]})), "fit");
+      }, 280);
+    }
+  },
+  closeDetail(){ closeSheet("detail"); this.detailId = null; },
+  editFromDetail(){
+    const r = Store.find(this.detailId);
+    if(r) this.openManual(r);
+  },
+
+  /* ---------- ゴミ箱 ---------- */
+  openTrash(){
+    const trashed = Store.runs.filter(r => r.deleted).sort((a,b) => b.updatedAt - a.updatedAt);
+    const box = $("trash-body");
+    if(trashed.length === 0){
+      box.innerHTML = `<div class="empty-state"><div class="big">🗑</div>ゴミ箱は空です</div>`;
+    } else {
+      box.innerHTML = trashed.map(r => {
+        const fd = fmtDate(r.date);
+        return `<div class="run-item" style="margin-bottom:10px">
+          <div class="ri-date"><div class="d1 ${fd.cls}">${fd.text.slice(5)}</div><div class="d2">${r.date.slice(0,4)}</div></div>
+          <div class="ri-main"><div class="ri-dist">${fmtKm(r.distance)}<small> km</small></div>
+          <div class="ri-sub">${fmtTime(r.duration)}</div></div>
+          <button class="btn btn-ghost" style="min-height:38px;padding:0 12px" onclick="App.restoreRun('${r.id}')">復元</button>
+          <button class="btn btn-danger" style="min-height:38px;padding:0 12px" onclick="App.hardDelete('${r.id}')">完全削除</button>
+        </div>`;
+      }).join("");
+    }
+    openSheet("trash");
+  },
+  closeTrash(){ closeSheet("trash"); },
+  restoreRun(id){
+    const r = Store.find(id);
+    if(!r) return;
+    r.deleted = false; r.updatedAt = Date.now();
+    Store.saveRuns();
+    this.openTrash(); this.renderHistory(); this.renderStats();
+    toast("復元しました");
+  },
+  hardDelete(id){
+    confirmSheet("この記録を完全に削除しますか?(元に戻せません)", () => {
+      Store.runs = Store.runs.filter(r => r.id !== id);
+      Store.saveRuns();
+      this.openTrash();
+      toast("完全に削除しました");
+    }, "完全削除");
+  },
+  /* ---------- 統計 ---------- */
+  setStatsPeriod(p){
+    this.statsPeriod = p;
+    document.querySelectorAll("#stats-seg button").forEach(b => b.classList.toggle("active", b.dataset.p === p));
+    this.renderStats();
+  },
+  /* 期間の開始日を返す(週=月曜始まり) */
+  periodStart(p){
+    const now = new Date();
+    if(p === "week"){
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const day = (d.getDay() + 6) % 7; // 月曜=0
+      d.setDate(d.getDate() - day);
+      return d;
+    }
+    if(p === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
+    return new Date(now.getFullYear(), 0, 1);
+  },
+  renderStats(){
+    const p = this.statsPeriod;
+    const runs = Store.active();
+    const start = toDateStr(this.periodStart(p));
+    const inPeriod = runs.filter(r => r.date >= start && r.date <= todayStr());
+    const dist = inPeriod.reduce((s,r) => s + r.distance, 0);
+    const dur = inPeriod.reduce((s,r) => s + r.duration, 0);
+    $("stats-period-label").textContent = { week:"今週(月曜〜)", month:"今月", year:"今年" }[p];
+    $("st-dist").innerHTML = `${(dist/1000).toFixed(1)}<small> km</small>`;
+    $("st-count").innerHTML = `${inPeriod.length}<small> 回</small>`;
+    $("st-time").textContent = fmtTime(dur);
+    $("st-pace").textContent = dist > 0 ? fmtPace(dur / (dist/1000)) : "–'––\"";
+    this.renderChart(runs);
+    this.renderBests(runs);
+  },
+  /* 棒グラフ(週:直近8週 / 月:直近12ヶ月 / 年:年別) */
+  renderChart(runs){
+    const p = this.statsPeriod;
+    const labels = [], values = [];
+    const now = new Date();
+    if(p === "week"){
+      $("chart-title").textContent = "週別距離(直近8週)";
+      const mon = this.periodStart("week");
+      for(let i = 7; i >= 0; i--){
+        const s = new Date(mon); s.setDate(s.getDate() - i*7);
+        const e = new Date(s); e.setDate(e.getDate() + 6);
+        const ss = toDateStr(s), es = toDateStr(e);
+        labels.push(`${s.getMonth()+1}/${s.getDate()}`);
+        values.push(runs.filter(r => r.date >= ss && r.date <= es).reduce((t,r) => t + r.distance, 0) / 1000);
+      }
+    } else if(p === "month"){
+      $("chart-title").textContent = "月別距離(直近12ヶ月)";
+      for(let i = 11; i >= 0; i--){
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0");
+        labels.push(`${d.getMonth()+1}月`);
+        values.push(runs.filter(r => r.date.startsWith(key)).reduce((t,r) => t + r.distance, 0) / 1000);
+      }
+    } else {
+      $("chart-title").textContent = "年別距離";
+      const years = [...new Set(runs.map(r => r.date.slice(0,4)))].sort();
+      const list = years.length ? years : [String(now.getFullYear())];
+      list.slice(-8).forEach(y => {
+        labels.push(y);
+        values.push(runs.filter(r => r.date.startsWith(y)).reduce((t,r) => t + r.distance, 0) / 1000);
+      });
+    }
+    this.drawBarChart($("chart-canvas"), labels, values);
+  },
+  drawBarChart(cv, labels, values){
+    const ctx = cv.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    cv.width = w*dpr; cv.height = h*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    const style = getComputedStyle(document.documentElement);
+    const accent = style.getPropertyValue("--accent").trim();
+    const text3 = style.getPropertyValue("--text3").trim();
+    const max = Math.max(...values, 1);
+    const padB = 22, padT = 16;
+    const bw = w / labels.length;
+    ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+    labels.forEach((lb,i) => {
+      const v = values[i];
+      const bh = (h - padB - padT) * (v / max);
+      const x = bw*i + bw*0.2, bwid = bw*0.6;
+      ctx.fillStyle = accent;
+      ctx.globalAlpha = i === labels.length-1 ? 1 : 0.55; // 直近の棒を強調
+      const y = h - padB - bh;
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(x, y, bwid, Math.max(bh,1), 3);
+      else ctx.rect(x, y, bwid, Math.max(bh,1)); // roundRect非対応ブラウザ用
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = text3;
+      ctx.fillText(lb, bw*i + bw/2, h - 7);
+      if(v > 0) ctx.fillText(v >= 10 ? Math.round(v) : v.toFixed(1), bw*i + bw/2, y - 4);
+    });
+  },
+  /* 自己ベスト一覧 */
+  renderBests(runs){
+    const box = $("best-list");
+    if(runs.length === 0){
+      box.innerHTML = `<div class="empty-state" style="padding:20px">記録が増えると自己ベストが表示されます</div>`;
+      return;
+    }
+    const longest = [...runs].sort((a,b) => b.distance - a.distance)[0];
+    const paced = runs.filter(r => r.distance >= 1000);
+    const fastest = paced.length ? [...paced].sort((a,b) => a.duration/a.distance - b.duration/b.distance)[0] : null;
+    // 月間最高距離
+    const byMonth = {};
+    runs.forEach(r => { const m = r.date.slice(0,7); byMonth[m] = (byMonth[m]||0) + r.distance; });
+    const bestMonth = Object.entries(byMonth).sort((a,b) => b[1]-a[1])[0];
+    const rows = [
+      ["🏆 最長距離", `${fmtKm(longest.distance)} km`, fmtDate(longest.date).text],
+      fastest ? ["⚡ 最速平均ペース(1km以上)", fmtPace(fastest.duration/(fastest.distance/1000)) + "/km", fmtDate(fastest.date).text] : null,
+      bestMonth ? ["📅 月間最高距離", `${fmtKm(bestMonth[1])} km`, bestMonth[0].replace("-","年")+"月"] : null
+    ].filter(Boolean);
+    box.innerHTML = rows.map(r =>
+      `<div class="best-row"><span>${r[0]}</span><span><span class="bv">${r[1]}</span><span class="bd">${r[2]}</span></span></div>`).join("");
+  },
+
+  /* ---------- 設定・同期 ---------- */
+  saveSettings(){
+    Store.settings.user = $("set-user").value.trim();
+    Store.settings.weight = z2h($("set-weight").value);
+    $("set-weight").value = Store.settings.weight;
+    Store.settings.gasUrl = $("set-gas").value.trim();
+    Store.settings.group = $("set-group").value.trim();
+    Store.saveSettings();
+    toast("設定を保存しました");
+  },
+  /* 保存後の自動同期(設定済みの場合のみ・失敗しても静かに無視) */
+  autoSync(){
+    if(Store.settings.gasUrl && Store.settings.group) this.syncNow(true);
+  },
+  syncing: false,
+  /* GAS同期(マージ方式・updatedAt優先)。silent=trueで自動同期 */
+  async syncNow(silent){
+    const { gasUrl, group } = Store.settings;
+    if(!gasUrl || !group){
+      if(!silent) toast("設定画面でGAS URLとグループIDを入力してください");
+      return;
+    }
+    if(this.syncing) return; // 多重実行防止
+    this.syncing = true;
+    const btn = $("btn-sync");
+    btn.innerHTML = '<span class="spinner" style="border-color:rgba(120,120,120,.3);border-top-color:var(--accent)"></span>';
+    try{
+      const res = await fetch(gasUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" }, // preflight回避
+        body: JSON.stringify({ action: "sync", group, runs: Store.runs })
+      });
+      const data = await res.json();
+      if(!data.ok) throw new Error(data.error || "server error");
+      // サーバーのマージ結果で置き換え(サーバー側もupdatedAt優先でマージ済み)
+      Store.runs = data.runs;
+      Store.saveRuns();
+      this.renderHistory(); this.renderStats();
+      if(!silent) toast(`同期しました(${Store.active().length}件)`);
+    }catch(e){
+      console.error("sync失敗", e);
+      // 同期失敗時もローカルデータはそのまま保持
+      if(!silent) toast("同期に失敗しました。通信環境とURLを確認して再度お試しください");
+    }finally{
+      this.syncing = false;
+      btn.innerHTML = "🔄";
+    }
+  },
+  /* 全データJSONエクスポート */
+  exportJson(){
+    const data = { app: "runlog", version: DATA_VERSION, exportedAt: new Date().toISOString(), runs: Store.runs, settings: { user: Store.settings.user } };
+    const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `runlog_backup_${todayStr()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    toast("エクスポートしました");
+  },
+  /* キャッシュ破棄+再読み込み */
+  async forceUpdate(){
+    try{
+      if(window.caches){
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    }catch(e){}
+    location.reload(true);
+  }
+};
+
+/* 計測中のページ離脱を警告 */
+window.addEventListener("beforeunload", e => {
+  if(Run.active){ e.preventDefault(); e.returnValue = ""; }
+});
+
+App.init();
+</script>
+</body>
+</html>
