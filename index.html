@@ -326,8 +326,17 @@ nav button.active{color:var(--accent)}
 
     <div class="settings-card">
       <div class="setting-label" style="margin-bottom:6px">👤 プロフィール</div>
-      <div class="setting-row"><div class="setting-label">名前(記録者名)</div><div class="input-wrap" style="flex:1.4;min-width:0"><input type="text" id="set-user" maxlength="10" onchange="App.saveSettings()"><button class="clear-x">✕</button></div></div>
+      <div class="setting-row"><div class="setting-label">この端末の記録者</div><div class="input-wrap" style="flex:1.4;min-width:0"><select id="set-user" onchange="App.saveSettings()"></select></div></div>
       <div class="setting-row"><div class="setting-label">体重(kg・カロリー計算用)</div><div class="input-wrap" style="flex:1.4;min-width:0"><input type="text" inputmode="decimal" id="set-weight" maxlength="5" onchange="App.saveSettings()"><button class="clear-x">✕</button></div></div>
+    </div>
+
+    <div class="section-title">👥 メンバー管理</div>
+    <div class="settings-card">
+      <div id="memberList"></div>
+      <div class="setting-row" style="margin-top:10px">
+        <div class="input-wrap" style="flex:1"><input type="text" id="newMemberName" maxlength="10" placeholder="名前を入力"><button class="clear-x">✕</button></div>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="App.addMember()">＋ メンバーを追加</button>
     </div>
 
     <div class="settings-card">
@@ -336,7 +345,7 @@ nav button.active{color:var(--accent)}
       <div class="setting-row"><div class="setting-label">グループID</div><div class="input-wrap" style="flex:1.4;min-width:0"><input type="text" id="set-group" maxlength="20" onchange="App.saveSettings()"><button class="clear-x">✕</button></div></div>
       <button class="btn btn-ghost btn-block" onclick="App.syncNow()">🔄 今すぐ同期(マージ方式)</button>
       <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.7">
-        同期はマージ方式です。同じ記録が両方で編集された場合は、更新日時が新しい方を優先します。同期に失敗してもローカルのデータは失われません。
+        同期はマージ方式です。同じ記録・メンバーが両方で編集された場合は、更新日時が新しい方を優先します。同期に失敗してもローカルのデータは失われません。メンバーは記録の有無に関わらず、追加した時点で同期対象になります。
       </div>
     </div>
 
@@ -416,6 +425,10 @@ nav button.active{color:var(--accent)}
     <div class="form-group">
       <label>メモ</label>
       <div class="input-wrap"><textarea id="mn-memo" maxlength="200"></textarea><button class="clear-x">✕</button></div>
+    </div>
+    <div class="form-group">
+      <label>記録者</label>
+      <select id="mn-user"></select>
     </div>
     <button class="btn btn-primary btn-block" id="mn-save-btn" onclick="App.saveManual()">保存する</button>
   </div>
@@ -545,8 +558,10 @@ const LS_SETTINGS = "runlog_settings";
 const LS_THEME = "runlog_theme";
 const DATA_VERSION = 1;
 
+const LS_MEMBERS = "runlog_members";
 const Store = {
   runs: [],      // 全記録(削除済み含む。deleted:trueはゴミ箱)
+  members: [],   // 登録済みメンバー一覧 {id,name,updatedAt,deleted} ・ 記録の有無に関わらず同期される
   settings: { user:"", weight:"", gasUrl:"", group:"" },
 
   /* 起動時読み込み。壊れたデータでも起動できるようtry-catch */
@@ -559,10 +574,21 @@ const Store = {
       }
     }catch(e){ console.error("runs読込失敗", e); this.runs = []; }
     try{
+      const raw = JSON.parse(localStorage.getItem(LS_MEMBERS) || "null");
+      if(raw && Array.isArray(raw.items)) this.members = raw.items;
+    }catch(e){ console.error("members読込失敗", e); this.members = []; }
+    try{
       const s = JSON.parse(localStorage.getItem(LS_SETTINGS) || "null");
       if(s) Object.assign(this.settings, s);
     }catch(e){ console.error("settings読込失敗", e); }
   },
+  saveMembers(){
+    try{
+      localStorage.setItem(LS_MEMBERS, JSON.stringify({ version: DATA_VERSION, items: this.members }));
+    }catch(e){ toast("保存に失敗しました。空き容量を確認してください"); }
+  },
+  /* 有効(未削除)のメンバーを登録順で返す */
+  activeMembers(){ return this.members.filter(m => !m.deleted); },
   saveRuns(){
     try{
       localStorage.setItem(LS_RUNS, JSON.stringify({ version: DATA_VERSION, items: this.runs }));
@@ -848,7 +874,8 @@ const App = {
       this.bindNumericInputs();
       this.bindSwipeDelete();
       // 設定値をフォームへ反映
-      $("set-user").value = Store.settings.user;
+      this.renderMemberList();
+      this.renderUserSelect();
       $("set-weight").value = Store.settings.weight;
       $("set-gas").value = Store.settings.gasUrl;
       $("set-group").value = Store.settings.group;
@@ -1053,6 +1080,12 @@ const App = {
       this.mnFeel = 3;
     }
     this.setFeelUI("mn-feel", this.mnFeel);
+    const uSel = $("mn-user");
+    const cur = (editRun ? editRun.user : "") || Store.settings.user || "";
+    let opts = Store.activeMembers().map(m => m.name);
+    if(cur && !opts.includes(cur)) opts.push(cur); // 未登録名(退会済み等)も表示だけは残す
+    uSel.innerHTML = '<option value="">未設定</option>' + opts.map(n => `<option value="${n}">${n}</option>`).join("");
+    if([...uSel.options].some(o => o.value === cur)) uSel.value = cur;
     this.clearErrors();
     openSheet("manual");
   },
@@ -1129,6 +1162,7 @@ const App = {
       editRun.duration = durSec;
       editRun.feel = this.mnFeel;
       editRun.memo = $("mn-memo").value.trim();
+      editRun.user = $("mn-user").value;
       if(!isGps) editRun.kcal = this.calcKcal(distM);
       editRun.updatedAt = Date.now();
       toast("更新しました");
@@ -1141,7 +1175,7 @@ const App = {
         kcal: this.calcKcal(distM),
         feel: this.mnFeel,
         memo: $("mn-memo").value.trim(),
-        user: Store.settings.user || "",
+        user: $("mn-user").value,
         updatedAt: Date.now(), deleted: false
       });
       toast("保存しました 🎉");
@@ -1167,8 +1201,9 @@ const App = {
         return `<option value="${m}">${y}年${+mo}月</option>`;
       }).join("");
     if([...mSel.options].some(o => o.value === mPrev)) mSel.value = mPrev;
-    // ユーザーフィルタ(複数ユーザーがいる場合のみ表示)
-    const users = [...new Set(runs.map(r => r.user).filter(Boolean))];
+    // ユーザーフィルタ(登録済みメンバー基準。複数いる場合のみ表示)
+    const runUsers = [...new Set(runs.map(r => r.user).filter(Boolean))];
+    const users = [...new Set([...Store.activeMembers().map(m => m.name), ...runUsers])];
     const uSel = $("filter-user");
     const uPrev = uSel.value;
     uSel.style.display = users.length > 1 ? "block" : "none";
@@ -1470,9 +1505,9 @@ const App = {
       `<div class="best-row"><span>${r[0]}</span><span><span class="bv">${r[1]}</span><span class="bd">${r[2]}</span></span></div>`).join("");
   },
 
-  /* ---------- 設定・同期 ---------- */
+  /* ---------- 設定・メンバー・同期 ---------- */
   saveSettings(){
-    Store.settings.user = $("set-user").value.trim();
+    Store.settings.user = $("set-user").value;
     Store.settings.weight = z2h($("set-weight").value);
     $("set-weight").value = Store.settings.weight;
     Store.settings.gasUrl = $("set-gas").value.trim();
@@ -1480,12 +1515,59 @@ const App = {
     Store.saveSettings();
     toast("設定を保存しました");
   },
+  /* 「この端末の記録者」選択肢を、登録済みメンバーから構築 */
+  renderUserSelect(){
+    const sel = $("set-user");
+    const members = Store.activeMembers();
+    sel.innerHTML = '<option value="">未設定</option>' + members.map(m => `<option value="${m.name}">${m.name}</option>`).join("");
+    if([...sel.options].some(o => o.value === Store.settings.user)) sel.value = Store.settings.user;
+    else { Store.settings.user = ""; Store.saveSettings(); } // 選択中メンバーが削除された場合
+  },
+  /* メンバー一覧を表示(記録の有無に関わらず、登録した時点で表示される) */
+  renderMemberList(){
+    const el = $("memberList");
+    const members = Store.activeMembers();
+    if(members.length === 0){
+      el.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0">まだメンバーが登録されていません</div>';
+      return;
+    }
+    el.innerHTML = members.map(m => `
+      <div class="setting-row">
+        <div class="setting-label" style="flex:1">${m.name}</div>
+        <button class="btn btn-ghost" style="min-height:34px;padding:0 12px" data-id="${m.id}" data-act="del">削除</button>
+      </div>`).join("");
+    el.querySelectorAll("[data-act=del]").forEach(btn =>
+      btn.addEventListener("click", () => this.removeMember(btn.dataset.id)));
+  },
+  /* メンバーを新規登録(記録の作成とは無関係に、追加した瞬間から一覧・同期対象になる) */
+  addMember(){
+    const input = $("newMemberName");
+    const name = input.value.trim();
+    if(!name){ toast("名前を入力してください"); return; }
+    if(Store.activeMembers().some(m => m.name === name)){ toast("同じ名前のメンバーが既にいます"); return; }
+    Store.members.push({ id: uuid(), name, updatedAt: Date.now(), deleted: false });
+    Store.saveMembers();
+    input.value = "";
+    this.renderMemberList(); this.renderUserSelect(); this.renderHistory();
+    toast(`「${name}」を追加しました`);
+    this.autoSync();
+  },
+  /* メンバーを削除(記録データ自体は残る) */
+  removeMember(id){
+    const m = Store.members.find(x => x.id === id);
+    if(!m) return;
+    if(!confirm(`「${m.name}」を削除しますか?(この人の記録データは残ります)`)) return;
+    m.deleted = true; m.updatedAt = Date.now();
+    Store.saveMembers();
+    this.renderMemberList(); this.renderUserSelect(); this.renderHistory();
+    this.autoSync();
+  },
   /* 保存後の自動同期(設定済みの場合のみ・失敗しても静かに無視) */
   autoSync(){
     if(Store.settings.gasUrl && Store.settings.group) this.syncNow(true);
   },
   syncing: false,
-  /* GAS同期(マージ方式・updatedAt優先)。silent=trueで自動同期 */
+  /* GAS同期(マージ方式・updatedAt優先)。runsとmembersを別々に同じ方式でマージ。silent=trueで自動同期 */
   async syncNow(silent){
     const { gasUrl, group } = Store.settings;
     if(!gasUrl || !group){
@@ -1500,13 +1582,16 @@ const App = {
       const res = await fetch(gasUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain" }, // preflight回避
-        body: JSON.stringify({ action: "sync", group, runs: Store.runs })
+        body: JSON.stringify({ action: "sync", group, runs: Store.runs, members: Store.members })
       });
       const data = await res.json();
       if(!data.ok) throw new Error(data.error || "server error");
       // サーバーのマージ結果で置き換え(サーバー側もupdatedAt優先でマージ済み)
       Store.runs = data.runs;
+      Store.members = data.members || [];
       Store.saveRuns();
+      Store.saveMembers();
+      this.renderMemberList(); this.renderUserSelect();
       this.renderHistory(); this.renderStats();
       if(!silent) toast(`同期しました(${Store.active().length}件)`);
     }catch(e){
