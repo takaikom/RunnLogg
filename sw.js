@@ -3,8 +3,8 @@
  * 方式: ネットワークファースト(常に最新版を優先し、オフライン時のみキャッシュで起動)
  * 更新時は CACHE_NAME のバージョン番号を上げること
  */
-const CACHE_NAME = "runlog-v2";
-const ASSETS = ["./runlog.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
+const CACHE_NAME = "runlog-v3";
+const ASSETS = ["./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 /* インストール時: 基本ファイルを事前キャッシュ */
 self.addEventListener("install", e => {
