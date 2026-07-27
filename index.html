@@ -70,11 +70,12 @@ header .app-title span{color:var(--accent)}
 }
 .icon-btn:active{opacity:.6}
 /* ============ メイン・タブ ============ */
-main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative}
+main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
 .view{display:none;padding:14px 14px 30px;max-width:720px;margin:0 auto}
 .view.active{display:block}
 nav{
-  flex:none;display:flex;background:var(--bg2);border-top:1px solid var(--line);
+  position:fixed;left:0;right:0;bottom:0;z-index:50;
+  display:flex;background:var(--bg2);border-top:1px solid var(--line);
   padding-bottom:env(safe-area-inset-bottom);
 }
 nav button{
@@ -364,7 +365,7 @@ nav button.active{color:var(--accent)}
 
 <nav>
   <button class="active" data-v="run" onclick="App.switchView('run')"><span class="nicon">🏃</span>走る</button>
-  <button data-v="history" onclick="App.switchView('history')"><span class="nicon">📋</span>履歴</button>
+  <button data-v="history" onclick="App.switchView('history')"><span class="nicon">📋</span>記録</button>
   <button data-v="stats" onclick="App.switchView('stats')"><span class="nicon">📊</span>統計</button>
   <button data-v="settings" onclick="App.switchView('settings')"><span class="nicon">⚙️</span>設定</button>
 </nav>
@@ -854,6 +855,7 @@ const App = {
   statsPeriod: "week",
   editingId: null,     // 手動シートで編集中の記録ID(新規はnull)
   detailId: null,      // 詳細シートで表示中の記録ID
+  editingMemberId: null, // 設定画面でインライン編集中のメンバーID
   mnFeel: 3, svFeel: 3,
   pendingGps: null,    // 終了直後・保存前のGPS計測結果
   scrollPos: {},       // 画面ごとのスクロール位置退避
@@ -1237,7 +1239,7 @@ const App = {
         <div class="run-item" onclick="App.openDetail('${r.id}')">
           <div class="ri-date"><div class="d1 ${fd.cls}">${fd.text.slice(5)}</div><div class="d2">${r.date.slice(0,4)}${r.type==="gps"?" 📍GPS":""}</div></div>
           <div class="ri-main">
-            <div class="ri-dist">${fmtKm(r.distance)}<small> km</small>${r.user ? `<span class="user-badge">${this.esc(r.user)}</span>` : ""}</div>
+            <div class="ri-dist">${fmtKm(r.distance)}<small> km</small><span class="user-badge">${r.user ? this.esc(r.user) : "未設定"}</span></div>
             <div class="ri-sub">${fmtTime(r.duration)} ・ ${pace}/km</div>
           </div>
           <div class="ri-feel">${FEELS[(r.feel||3)-1]}</div>
@@ -1328,7 +1330,7 @@ const App = {
         r.splits.map((s,i) => `<div class="split-row"><span>${i+1} km</span><b>${fmtPace(s)}</b></div>`).join("") + `</div></div>`;
     }
     html += `<div style="font-size:14px;line-height:1.8;padding:4px 2px">
-      調子: ${FEELS[(r.feel||3)-1]}${r.user ? ` ・ 記録者: ${this.esc(r.user)}` : ""}${r.type === "gps" ? " ・ 📍GPS計測" : " ・ ✍️手動記録"}<br>
+      調子: ${FEELS[(r.feel||3)-1]} ・ 記録者: ${r.user ? this.esc(r.user) : "未設定"}${r.type === "gps" ? " ・ 📍GPS計測" : " ・ ✍️手動記録"}<br>
       ${r.memo ? "📝 " + this.esc(r.memo) : '<span style="color:var(--text3)">メモなし</span>'}</div>`;
     html += `<button class="btn btn-ghost btn-block" style="margin-top:10px;color:var(--bad)" onclick="App.softDelete('${r.id}')">🗑 この記録を削除</button>`;
     $("dt-body").innerHTML = html;
@@ -1344,6 +1346,7 @@ const App = {
   closeDetail(){ closeSheet("detail"); this.detailId = null; },
   editFromDetail(){
     const r = Store.find(this.detailId);
+    this.closeDetail();
     if(r) this.openManual(r);
   },
 
@@ -1523,7 +1526,7 @@ const App = {
     if([...sel.options].some(o => o.value === Store.settings.user)) sel.value = Store.settings.user;
     else { Store.settings.user = ""; Store.saveSettings(); } // 選択中メンバーが削除された場合
   },
-  /* メンバー一覧を表示(記録の有無に関わらず、登録した時点で表示される) */
+  /* メンバー一覧を表示(記録の有無に関わらず、登録した時点で表示される)。編集中の行はテキスト入力に切り替える */
   renderMemberList(){
     const el = $("memberList");
     const members = Store.activeMembers();
@@ -1531,13 +1534,49 @@ const App = {
       el.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0">まだメンバーが登録されていません</div>';
       return;
     }
-    el.innerHTML = members.map(m => `
+    el.innerHTML = members.map(m => {
+      if(this.editingMemberId === m.id){
+        return `
+        <div class="setting-row">
+          <div class="input-wrap" style="flex:1"><input type="text" maxlength="10" value="${m.name}" id="edit-member-${m.id}"></div>
+          <button class="btn btn-primary" style="min-height:34px;padding:0 12px" data-id="${m.id}" data-act="save">保存</button>
+          <button class="btn btn-ghost" style="min-height:34px;padding:0 12px" data-act="cancel">取消</button>
+        </div>`;
+      }
+      return `
       <div class="setting-row">
         <div class="setting-label" style="flex:1">${m.name}</div>
+        <button class="btn btn-ghost" style="min-height:34px;padding:0 12px" data-id="${m.id}" data-act="edit">✏️</button>
         <button class="btn btn-ghost" style="min-height:34px;padding:0 12px" data-id="${m.id}" data-act="del">削除</button>
-      </div>`).join("");
+      </div>`;
+    }).join("");
     el.querySelectorAll("[data-act=del]").forEach(btn =>
       btn.addEventListener("click", () => this.removeMember(btn.dataset.id)));
+    el.querySelectorAll("[data-act=edit]").forEach(btn =>
+      btn.addEventListener("click", () => { this.editingMemberId = btn.dataset.id; this.renderMemberList(); }));
+    el.querySelectorAll("[data-act=cancel]").forEach(btn =>
+      btn.addEventListener("click", () => { this.editingMemberId = null; this.renderMemberList(); }));
+    el.querySelectorAll("[data-act=save]").forEach(btn =>
+      btn.addEventListener("click", () => this.saveMemberName(btn.dataset.id)));
+  },
+  /* メンバー名を変更(既存記録のuser欄は自動で追随。同じ文字列で管理しているため) */
+  saveMemberName(id){
+    const input = $("edit-member-" + id);
+    const name = input.value.trim();
+    if(!name){ toast("名前を入力してください"); return; }
+    if(Store.activeMembers().some(m => m.id !== id && m.name === name)){ toast("同じ名前のメンバーが既にいます"); return; }
+    const m = Store.members.find(x => x.id === id);
+    const oldName = m.name;
+    m.name = name;
+    m.updatedAt = Date.now();
+    // 名前変更前の記録・現在の選択中記録者もあわせて更新(記録はuser欄に名前を文字列で保持しているため)
+    Store.runs.forEach(r => { if(r.user === oldName) r.user = name; });
+    if(Store.settings.user === oldName) Store.settings.user = name;
+    Store.saveMembers(); Store.saveRuns(); Store.saveSettings();
+    this.editingMemberId = null;
+    this.renderMemberList(); this.renderUserSelect(); this.renderHistory();
+    toast(`「${oldName}」を「${name}」に変更しました`);
+    this.autoSync();
   },
   /* メンバーを新規登録(記録の作成とは無関係に、追加した瞬間から一覧・同期対象になる) */
   addMember(){
@@ -1567,6 +1606,18 @@ const App = {
     if(Store.settings.gasUrl && Store.settings.group) this.syncNow(true);
   },
   syncing: false,
+  pendingSync: false, // 同期中に発生した追加同期要求を取りこぼさないためのフラグ
+  /* idベースでローカルとサーバー結果をマージ(updatedAtが新しい方を優先)。
+     同期リクエスト送信後〜応答受信までの間にローカルで追加された項目を失わないようにする */
+  mergeById(local, remote){
+    const map = new Map();
+    local.forEach(x => map.set(x.id, x));
+    remote.forEach(x => {
+      const ex = map.get(x.id);
+      if(!ex || (x.updatedAt || 0) >= (ex.updatedAt || 0)) map.set(x.id, x);
+    });
+    return [...map.values()];
+  },
   /* GAS同期(マージ方式・updatedAt優先)。runsとmembersを別々に同じ方式でマージ。silent=trueで自動同期 */
   async syncNow(silent){
     const { gasUrl, group } = Store.settings;
@@ -1574,7 +1625,7 @@ const App = {
       if(!silent) toast("設定画面でGAS URLとグループIDを入力してください");
       return;
     }
-    if(this.syncing) return; // 多重実行防止
+    if(this.syncing){ this.pendingSync = true; return; } // 実行中なら完了後に再同期
     this.syncing = true;
     const btn = $("btn-sync");
     btn.innerHTML = '<span class="spinner" style="border-color:rgba(120,120,120,.3);border-top-color:var(--accent)"></span>';
@@ -1586,9 +1637,9 @@ const App = {
       });
       const data = await res.json();
       if(!data.ok) throw new Error(data.error || "server error");
-      // サーバーのマージ結果で置き換え(サーバー側もupdatedAt優先でマージ済み)
-      Store.runs = data.runs;
-      Store.members = data.members || [];
+      // サーバーのマージ結果をローカルにマージ(送信後に追加されたローカル項目を上書きしないため、置き換えではなくマージ)
+      Store.runs = this.mergeById(Store.runs, data.runs);
+      Store.members = this.mergeById(Store.members, data.members || []);
       Store.saveRuns();
       Store.saveMembers();
       this.renderMemberList(); this.renderUserSelect();
@@ -1601,6 +1652,7 @@ const App = {
     }finally{
       this.syncing = false;
       btn.innerHTML = "🔄";
+      if(this.pendingSync){ this.pendingSync = false; this.syncNow(true); } // 取りこぼした追加分を再同期
     }
   },
   /* 全データJSONエクスポート */
