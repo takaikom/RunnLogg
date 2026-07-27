@@ -2,7 +2,7 @@
   "name": "ランログ",
   "short_name": "ランログ",
   "description": "家族で共有できるプライベートランニングログ",
-  "start_url": "./runlog.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
